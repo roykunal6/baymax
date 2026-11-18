@@ -1,0 +1,14 @@
+# Netlify: publishes Baymax as a static site. AI mode's PHP endpoint does not run here.
+[build]
+  publish = "."
+  command = "echo 'no build step'"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Content-Type = "application/manifest+json"

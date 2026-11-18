@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Baymax</title>
+  <meta name="description" content="Baymax, a voice-driven personal assistant for tasks, reminders, notes and automations.">
+  <meta name="theme-color" content="#4f46e5">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><img src="icon.svg" alt="" width="28" height="28"> <span>Baymax</span></div>
+    <div class="status" id="status" aria-live="polite"></div>
+  </header>
+
+  <main>
+    <!-- Assistant / chat -->
+    <section class="view active" id="view-assistant" aria-label="Assistant">
+      <div class="chat" id="chat" aria-live="polite"></div>
+      <div class="suggestions" id="suggestions"></div>
+      <div class="composer">
+        <div class="interim" id="interim"></div>
+        <form id="text-form" class="input-row" autocomplete="off">
+          <input id="text-input" type="text" placeholder="Ask Baymax…" aria-label="Command">
+          <button type="submit" class="icon-btn" aria-label="Send">
+            <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M3 20.5 21 12 3 3.5v6.6L15 12 3 13.9z"/></svg>
+          </button>
+        </form>
+        <button id="mic" class="mic" aria-label="Tap to talk" aria-pressed="false">
+          <svg viewBox="0 0 24 24" width="34" height="34"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- Tasks -->
+    <section class="view" id="view-tasks" aria-label="Tasks">
+      <div class="view-head">
+        <h2>Tasks &amp; reminders</h2>
+        <div class="seg" role="tablist" id="task-filter">
+          <button data-filter="open" class="on">Open</button>
+          <button data-filter="today">Today</button>
+          <button data-filter="done">Done</button>
+        </div>
+      </div>
+      <form id="task-form" class="card add-row">
+        <input id="task-title" placeholder="New task…  e.g. “call Ravi tomorrow at 4pm”" required>
+        <button class="btn primary">Add</button>
+      </form>
+      <ul class="list" id="task-list"></ul>
+    </section>
+
+    <!-- Routines -->
+    <section class="view" id="view-routines" aria-label="Routines">
+      <div class="view-head">
+        <h2>Routines</h2>
+        <button class="btn primary" id="new-routine">+ New routine</button>
+      </div>
+      <p class="hint">A routine runs several actions in a row. Trigger it with a voice phrase, a daily time, or a tap.</p>
+      <div id="routine-list" class="routine-grid"></div>
+      <h3 class="sub">Recent activity</h3>
+      <ul class="list compact" id="activity"></ul>
+    </section>
+
+    <!-- Notes -->
+    <section class="view" id="view-notes" aria-label="Notes">
+      <div class="view-head"><h2>Notes</h2></div>
+      <form id="note-form" class="card add-row">
+        <input id="note-text" placeholder="Quick note…" required>
+        <button class="btn primary">Save</button>
+      </form>
+      <input id="note-search" class="search" type="search" placeholder="Search notes">
+      <ul class="list" id="note-list"></ul>
+    </section>
+
+    <!-- Settings -->
+    <section class="view" id="view-settings" aria-label="Settings">
+      <div class="view-head"><h2>Settings</h2></div>
+      <form id="settings-form" class="card settings">
+        <label>Your name <input name="name" placeholder="Used in greetings"></label>
+        <label class="row"><input type="checkbox" name="speak"> Speak replies out loud</label>
+        <label class="row"><input type="checkbox" name="continuous"> Keep listening after each command</label>
+        <label>Voice <select name="voiceName" id="voice-select"><option value="">System default</option></select></label>
+        <label>Language
+          <select name="lang">
+            <option value="en-IN">English (India)</option>
+            <option value="en-US">English (US)</option>
+            <option value="en-GB">English (UK)</option>
+            <option value="hi-IN">Hindi</option>
+          </select>
+        </label>
+        <label>Speech rate <input type="range" name="rate" min="0.7" max="1.4" step="0.1"></label>
+        <fieldset>
+          <legend>AI mode (optional)</legend>
+          <p class="hint">Commands the built-in parser doesn’t understand are sent to Claude through your own server
+            (<code>api/assistant.php</code>). See README for setup.</p>
+          <label class="row"><input type="checkbox" name="ai"> Use AI for unrecognised commands</label>
+          <label>Endpoint <input name="aiUrl" placeholder="api/assistant.php"></label>
+          <label>Access PIN <input name="aiPin" type="password" autocomplete="off"></label>
+        </fieldset>
+      </form>
+      <div class="card settings">
+        <h3>Notifications</h3>
+        <p class="hint" id="notif-state"></p>
+        <button class="btn" id="notif-btn">Enable notifications</button>
+      </div>
+      <div class="card settings">
+        <h3>Backup</h3>
+        <div class="btn-row">
+          <button class="btn" id="export-btn">Export data</button>
+          <label class="btn">Import <input type="file" id="import-file" accept="application/json" hidden></label>
+          <button class="btn danger" id="wipe-btn">Erase everything</button>
+        </div>
+      </div>
+      <p class="hint center">Data is stored only in this browser. Routines and reminders fire while the app is open.</p>
+    </section>
+  </main>
+
+  <nav class="tabs" aria-label="Sections">
+    <button data-view="assistant" class="on"><svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z"/></svg>Baymax</button>
+    <button data-view="tasks"><svg viewBox="0 0 24 24"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>Tasks<span class="badge" id="task-badge" hidden></span></button>
+    <button data-view="routines"><svg viewBox="0 0 24 24"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>Routines</button>
+    <button data-view="notes"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zm-1 7V3.5L18.5 9zM8 13h8v2H8zm0 4h8v2H8z"/></svg>Notes</button>
+    <button data-view="settings"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.3 7.3 0 0 0-1.7-1L15 3h-4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.3 7.3 0 0 0 1.7 1L11 21h4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>Settings</button>
+  </nav>
+
+  <!-- Routine editor -->
+  <dialog id="routine-dialog">
+    <form method="dialog" id="routine-form" class="routine-form">
+      <h2 id="routine-dialog-title">Routine</h2>
+      <label>Name <input name="name" required placeholder="e.g. Morning briefing"></label>
+      <label>Voice phrases <span class="hint">(comma-separated, optional)</span>
+        <input name="phrases" placeholder="good morning, start my day"></label>
+      <fieldset class="trigger">
+        <legend>Automatic trigger</legend>
+        <label class="row"><input type="radio" name="ttype" value="voice"> Only when I say it / tap run</label>
+        <label class="row"><input type="radio" name="ttype" value="time"> Every day at
+          <input type="time" name="time" value="09:00"></label>
+        <div class="days" id="days"></div>
+      </fieldset>
+      <fieldset>
+        <legend>Actions <span class="hint">(run top to bottom)</span></legend>
+        <ol id="action-list" class="action-list"></ol>
+        <div class="add-action">
+          <select id="action-type"></select>
+          <button type="button" class="btn" id="add-action">Add step</button>
+        </div>
+      </fieldset>
+      <label class="row"><input type="checkbox" name="enabled" checked> Enabled</label>
+      <div class="btn-row end">
+        <button type="button" class="btn danger" id="delete-routine">Delete</button>
+        <span class="spacer"></span>
+        <button value="cancel" class="btn" formnovalidate>Cancel</button>
+        <button value="save" class="btn primary" id="save-routine">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

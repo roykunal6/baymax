@@ -1,0 +1,25 @@
+# Voice Assistant: Apache / LiteSpeed settings (works on cPanel hosts such as MilesWeb)
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # Voice input and "install app" only work over HTTPS.
+  RewriteCond %{HTTPS} !=on
+  RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+  # Never serve server-side secrets, libraries or dev files.
+  RewriteRule ^api/(config\.php|config\.sample\.php|composer\.(json|lock)|vendor/) - [F,L]
+  RewriteRule ^(tests|tools|node_modules)/ - [F,L]
+  RewriteRule ^(package\.json|PLAN\.md|README\.md)$ - [F,L]
+</IfModule>
+
+# Correct type for the app manifest so phones offer "Install app".
+AddType application/manifest+json .webmanifest
+
+# Always fetch the newest service worker and app shell.
+<FilesMatch "^(sw\.js|index\.html)$">
+  <IfModule mod_headers.c>
+    Header set Cache-Control "no-cache"
+  </IfModule>
+</FilesMatch>

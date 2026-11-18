@@ -1,0 +1,12 @@
+---
+# cPanel "Git Version Control" deployment (MilesWeb and other cPanel hosts).
+# Publishes Baymax at https://<your-domain>/baymax/
+# To use a different folder, change DEPLOYPATH (e.g. $HOME/public_html for the site root).
+deployment:
+  tasks:
+    - export DEPLOYPATH=$HOME/public_html/baymax
+    - mkdir -p $DEPLOYPATH/api
+    - /bin/cp -R .htaccess index.html manifest.webmanifest sw.js icon.svg css js $DEPLOYPATH/
+    - /bin/cp api/assistant.php api/config.sample.php api/composer.json api/composer.lock $DEPLOYPATH/api/
+    # Installs the libraries for AI mode if the server has Composer; harmless if it doesn't.
+    - cd $DEPLOYPATH/api && (composer install --no-dev --no-interaction --quiet || echo "Composer not available; AI mode needs api/vendor uploaded manually")

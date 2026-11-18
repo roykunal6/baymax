@@ -1,0 +1,10 @@
+{
+  "name": "teamglobal/voice-assistant-api",
+  "description": "Optional AI endpoint for the voice assistant",
+  "require": {
+    "php": ">=8.1",
+    "anthropic-ai/sdk": "^1.0",
+    "guzzlehttp/guzzle": "^7"
+  },
+  "config": { "optimize-autoloader": true }
+}
