@@ -528,6 +528,27 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => { /* offline support is optional */ });
 }
 
+// Some free hosts pin a badge to the bottom of the screen (Netlify adds #nl-badge-frame).
+// Keep the tab bar and input box above it instead of letting it cover them.
+function watchHostBadge() {
+  const apply = () => {
+    const badge = document.getElementById('nl-badge-frame');
+    const box = badge?.getBoundingClientRect();
+    const visible = box && box.height > 0 && getComputedStyle(badge).display !== 'none' && box.top < window.innerHeight;
+    const h = visible ? Math.ceil(window.innerHeight - box.top) : 0;
+    document.documentElement.style.setProperty('--badge-h', `${h}px`);
+  };
+  const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(apply) : null;
+  new MutationObserver(() => {
+    const badge = document.getElementById('nl-badge-frame');
+    if (badge && ro && !badge.dataset.watched) { badge.dataset.watched = '1'; ro.observe(badge); }
+    apply();
+  }).observe(document.body, { childList: true });
+  window.addEventListener('resize', apply);
+  apply();
+}
+watchHostBadge();
+
 // Allow deep links like ?q=add%20task%20buy%20milk (handy for phone shortcuts / widgets)
 const q = new URLSearchParams(location.search).get('q');
 if (q) { history.replaceState(null, '', location.pathname); handleInput(q); }
