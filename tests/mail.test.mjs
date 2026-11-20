@@ -105,6 +105,14 @@ test('send, reply-all, forward, archive, delete', async () => {
   assert.match(c.url, /\/folders\/9001\/messages\/5\?expunge=false$/);
 });
 
+test('reply sends exactly the recipients edited on screen, including Bcc', async () => {
+  await call({ action: 'reply', folderId: '9001', messageId: '5', content: 'Noted', all: true, to: 'ravi@client.com', cc: 'meera@client.com, boss@thestralmedia.com', bcc: 'archive@thestralmedia.com' });
+  const c = zohoCalls().find((x) => x.method === 'POST' && x.url.endsWith('/messages/5'));
+  assert.deepEqual([c.body.toAddress, c.body.ccAddress, c.body.bccAddress], ['ravi@client.com', 'meera@client.com,boss@thestralmedia.com', 'archive@thestralmedia.com']);
+  const bad = await call({ action: 'reply', folderId: '9001', messageId: '5', content: 'x', to: 'not-an-email' });
+  assert.equal(bad.status, 400);
+});
+
 test('connect exchanges the Self Client code and stores the refresh token server-side', async () => {
   secrets = {};
   let r = await call({ action: 'connect', code: 'expired' });

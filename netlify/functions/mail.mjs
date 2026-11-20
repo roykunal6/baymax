@@ -228,27 +228,36 @@ const actions = {
     return { sent: true };
   },
 
-  async reply({ messageId, folderId: fid, content = '', all = false }) {
+  /** Reply. If to/cc/bcc are given (as edited on screen) they are used exactly; otherwise they're
+   *  worked out from the original: the sender, plus for reply-all everyone on To and Cc, never yourself. */
+  async reply({ messageId, folderId: fid, content = '', all = false, to: toIn, cc: ccIn, bcc: bccIn }) {
     const { accountId, email } = await account();
     const details = summarise({ ...(await zoho(`/accounts/${accountId}/folders/${fid}/messages/${messageId}/details`)), messageId, folderId: fid });
     const me = (email || '').toLowerCase();
-    const to = [details.from.email, ...(all ? details.to.map((x) => x.email) : [])].filter((e) => e && e !== me);
-    const cc = all ? details.cc.map((x) => x.email).filter((e) => e !== me && !to.includes(e)) : [];
+    let to = [details.from.email, ...(all ? details.to.map((x) => x.email) : [])].filter((e) => e && e !== me);
+    let cc = all ? details.cc.map((x) => x.email).filter((e) => e !== me && !to.includes(e)) : [];
+    if (toIn !== undefined) to = cleanRecipients(toIn).split(',').filter(Boolean);
+    if (ccIn !== undefined) cc = cleanRecipients(ccIn).split(',').filter(Boolean);
+    if (!to.length) throw Object.assign(new Error('Add at least one recipient.'), { status: 400 });
     const subject = /^re:/i.test(details.subject) ? details.subject : `Re: ${details.subject}`;
     const body = { fromAddress: email, toAddress: [...new Set(to)].join(','), subject, content: String(content), mailFormat: 'plaintext', action: 'reply' };
     if (cc.length) body.ccAddress = [...new Set(cc)].join(',');
+    if (bccIn) body.bccAddress = cleanRecipients(bccIn);
     await zoho(`/accounts/${accountId}/messages/${messageId}`, { method: 'POST', body });
     return { sent: true, to: body.toAddress, cc: body.ccAddress || '' };
   },
 
   /** Forward: a new email with the original text quoted (attachments are not forwarded). */
-  async forward({ messageId, folderId: fid, to, content = '' }) {
+  async forward({ messageId, folderId: fid, to, cc, bcc, content = '' }) {
     const { accountId, email } = await account();
     const base = `/accounts/${accountId}/folders/${fid}/messages/${messageId}`;
     const [d, c] = await Promise.all([zoho(`${base}/details`), zoho(`${base}/content`)]);
     const m = summarise({ ...d, messageId, folderId: fid });
     const quoted = `\n\n---------- Forwarded message ----------\nFrom: ${m.from.name ? `${m.from.name} <${m.from.email}>` : m.from.email}\nDate: ${m.time ? new Date(m.time).toUTCString() : ''}\nSubject: ${m.subject}\nTo: ${m.to.map((x) => x.email).join(', ')}\n\n${htmlToText(c?.content || '')}`;
-    await zoho(`/accounts/${accountId}/messages`, { method: 'POST', body: { fromAddress: email, toAddress: cleanRecipients(to), subject: /^fwd?:/i.test(m.subject) ? m.subject : `Fwd: ${m.subject}`, content: String(content) + quoted, mailFormat: 'plaintext' } });
+    const body = { fromAddress: email, toAddress: cleanRecipients(to), subject: /^fwd?:/i.test(m.subject) ? m.subject : `Fwd: ${m.subject}`, content: String(content) + quoted, mailFormat: 'plaintext' };
+    if (cc) body.ccAddress = cleanRecipients(cc);
+    if (bcc) body.bccAddress = cleanRecipients(bcc);
+    await zoho(`/accounts/${accountId}/messages`, { method: 'POST', body });
     return { sent: true };
   },
 

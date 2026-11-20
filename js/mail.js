@@ -230,8 +230,7 @@ export function compose(prefill = {}) {
   sendSheet({
     title: 'New email', values: prefill,
     fields: [
-      { key: 'to', label: 'To', type: 'text', required: true, placeholder: 'name@example.com' },
-      { key: 'cc', label: 'Cc (optional)', type: 'text' },
+      ...recipientFields,
       { key: 'subject', label: 'Subject', type: 'text' },
       { key: 'content', label: 'Message', type: 'textarea', rows: 8 },
     ],
@@ -239,17 +238,32 @@ export function compose(prefill = {}) {
   });
 }
 
+/** Who a reply goes to: the sender, plus (reply all) everyone on To and Cc, never yourself. */
+export function replyRecipients(msg, all, myEmail = '') {
+  const me = String(myEmail || '').toLowerCase();
+  const not = (e) => e && e.toLowerCase() !== me;
+  const to = [...new Set([msg.from.email, ...(all ? msg.to.map((x) => x.email) : [])].filter(not))];
+  const cc = all ? [...new Set(msg.cc.map((x) => x.email).filter((e) => not(e) && !to.includes(e)))] : [];
+  return { to: to.join(', '), cc: cc.join(', ') };
+}
+
+const recipientFields = [
+  { key: 'to', label: 'To', type: 'text', required: true, placeholder: 'name@example.com, …' },
+  { key: 'cc', label: 'Cc', type: 'text', placeholder: 'Optional' },
+  { key: 'bcc', label: 'Bcc', type: 'text', placeholder: 'Optional' },
+];
+
 export function replySheet(msg, all = false, text = '') {
-  const to = [msg.from.email, ...(all ? msg.to.map((x) => x.email) : [])].filter((e) => e && e !== (view.status?.email || '').toLowerCase());
+  const r = replyRecipients(msg, all, view.status?.email);
   sendSheet({
     title: all ? 'Reply all' : 'Reply',
-    values: { to: [...new Set(to)].join(', '), subject: /^re:/i.test(msg.subject) ? msg.subject : `Re: ${msg.subject}`, content: text },
+    values: { ...r, bcc: '', subject: /^re:/i.test(msg.subject) ? msg.subject : `Re: ${msg.subject}`, content: text },
     fields: [
-      { key: 'to', label: 'To', type: 'text', readonly: true },
+      ...recipientFields,
       { key: 'subject', label: 'Subject', type: 'text', readonly: true },
       { key: 'content', label: 'Your reply', type: 'textarea', rows: 8, required: true },
     ],
-    onSend: (v) => mailApi('reply', { folderId: msg.folderId, messageId: msg.messageId, content: v.content, all }),
+    onSend: (v) => mailApi('reply', { folderId: msg.folderId, messageId: msg.messageId, content: v.content, all, to: v.to, cc: v.cc, bcc: v.bcc }),
   });
 }
 
@@ -257,11 +271,11 @@ function forwardSheet(msg) {
   sendSheet({
     title: 'Forward', values: { subject: `Fwd: ${msg.subject}` },
     fields: [
-      { key: 'to', label: 'To', type: 'text', required: true, placeholder: 'name@example.com' },
+      ...recipientFields,
       { key: 'subject', label: 'Subject', type: 'text', readonly: true },
       { key: 'content', label: 'Add a note (optional)', type: 'textarea', rows: 4 },
     ],
-    onSend: (v) => mailApi('forward', { folderId: msg.folderId, messageId: msg.messageId, to: v.to, content: v.content }),
+    onSend: (v) => mailApi('forward', { folderId: msg.folderId, messageId: msg.messageId, to: v.to, cc: v.cc, bcc: v.bcc, content: v.content }),
   });
 }
 
