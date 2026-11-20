@@ -127,6 +127,7 @@ test('finance commands', () => {
   assert.equal(p('how much did I spend today').range, 'today');
   assert.equal(p('how much did i spend on food this month').category, 'Food');
   assert.equal(p('credit card spends').type, 'card_summary');
+  assert.equal(p('how is my portfolio doing').type, 'portfolio');
   assert.equal(p('show my invoices').type, 'list_invoices');
   assert.deepEqual(p('set budget to 40k'), { type: 'set_budget', amount: 40000 });
   assert.deepEqual(p('my salary is 1.5 lakh'), { type: 'set_income', amount: 150000 });

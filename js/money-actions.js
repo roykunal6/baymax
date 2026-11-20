@@ -144,6 +144,19 @@ export async function executeMoney(a, ctx = {}) {
       };
     }
 
+    case 'portfolio': {
+      const { portfolioSummary, uploadDue } = await import('./zerodha.js');
+      const f = fin();
+      if (!(f.holdings || []).length) return { reply: 'No Zerodha holdings yet. Open Money → Invest and upload your holdings file from Zerodha Console.' };
+      const s = portfolioSummary(f.holdings);
+      const top = f.holdings.slice().sort((a, b) => b.value - a.value).slice(0, 3);
+      const due = uploadDue(f.zerodha?.lastUpload);
+      return {
+        reply: `Your portfolio is worth ${inr(s.value)}, ${s.pnl >= 0 ? 'up' : 'down'} ${inr(Math.abs(s.pnl))} (${s.pnlPct.toFixed(1)}%) on ${inr(s.invested)} invested.${due ? ' Your weekly Zerodha upload is due.' : ''}`,
+        items: [`Stocks ${inr(s.equity.value)} · Funds ${inr(s.mf.value)}`, ...top.map((h) => `${h.symbol}: ${inr(h.value)}`)],
+      };
+    }
+
     // ---------------- budget
     case 'set_budget': fin().budget = a.amount; save(); return { reply: `Monthly spending budget set to ${inr(a.amount)}.` };
     case 'set_income': fin().income = a.amount; save(); return { reply: `Monthly income set to ${inr(a.amount)}.` };

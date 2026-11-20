@@ -173,6 +173,18 @@ function loadScript(src, globalName) {
   });
 }
 
+/** Read a CSV or Excel file into rows (array of arrays), all sheets concatenated. */
+export async function readTable(file) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith('.csv') || file.type === 'text/csv') return parseCSV(await file.text());
+  if (/\.(xlsx?|xlsm)$/.test(name)) {
+    const XLSX = await loadScript(XLSX_URL, 'XLSX');
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    return wb.SheetNames.flatMap((n) => XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: '' }));
+  }
+  throw new Error('Use the Excel (.xlsx) or CSV file from Zerodha.');
+}
+
 /** Read any supported statement file into transactions [{date, description, amount, type}]. */
 export async function readStatementFile(file, { password } = {}) {
   const name = file.name.toLowerCase();

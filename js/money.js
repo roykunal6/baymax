@@ -9,6 +9,8 @@ import {
   daysBetween, startOfDay, guessCategory, monthKey,
 } from './finance.js';
 import { openSheet } from './sheet.js';
+import { parseHoldings, mergeHoldings, portfolioSummary, uploadDue } from './zerodha.js';
+import { readTable } from './statement.js';
 import { ordinal } from './money-actions.js';
 
 const fin = () => state.finance;
@@ -201,11 +203,11 @@ let invDir = 'in';
 
 export function renderMoney(el) {
   const h = healthCheck(fin());
-  const tabs = [['overview', 'Overview'], ['spends', 'Spends'], ['dues', 'Dues'], ['invoices', 'Invoices'], ['setup', 'Setup']];
+  const tabs = [['overview', 'Overview'], ['spends', 'Spends'], ['dues', 'Dues'], ['invest', 'Invest'], ['invoices', 'Invoices'], ['setup', 'Setup']];
   el.innerHTML = `
     <div class="page-head"><h1>Money</h1><span class="muted">${new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</span></div>
     <div class="seg wide" data-group="money-sub">${tabs.map(([k, l]) => `<button type="button" data-sub="${k}" class="${k === sub ? 'on' : ''}">${l}</button>`).join('')}</div>
-    <div id="money-body">${({ overview, spends, dues, invoices, setup })[sub](h)}</div>`;
+    <div id="money-body">${({ overview, spends, dues, invest, invoices, setup })[sub](h)}</div>`;
 }
 
 function overview(h) {
@@ -301,6 +303,63 @@ function dues() {
     ${any ? '' : '<p class="empty">No dues yet. Add your EMIs, SIPs and bills, or say “add EMI car loan 18500 on 10th”.</p>'}`;
 }
 
+function invest() {
+  const f = fin();
+  const holdings = (f.holdings || []).slice().sort((a, b) => b.value - a.value);
+  const s = portfolioSummary(holdings);
+  const last = f.zerodha?.lastUpload ? new Date(f.zerodha.lastUpload) : null;
+  const due = uploadDue(f.zerodha?.lastUpload);
+  const sips = f.obligations.filter((o) => o.kind === 'sip');
+  const sipTotal = sips.filter((o) => o.schedule.type === 'monthly').reduce((a, o) => a + o.amount, 0);
+  const hist = (f.zerodha?.history || []).slice(-12);
+  const spark = hist.length > 1 ? (() => {
+    const vals = hist.map((x) => x.value), min = Math.min(...vals), max = Math.max(...vals), w = 280, hgt = 48;
+    const pts = vals.map((v, i) => `${(i / (vals.length - 1)) * w},${hgt - ((v - min) / ((max - min) || 1)) * (hgt - 6) - 3}`).join(' ');
+    return `<svg viewBox="0 0 ${w} ${hgt}" width="100%" height="${hgt}" role="img" aria-label="Portfolio value trend"><polyline points="${pts}" fill="none" stroke="var(--good)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+  })() : '';
+  const pnlCls = s.pnl >= 0 ? 'good' : 'bad';
+  return `
+    <div class="card status-card ${due ? 'warn' : 'good'}">
+      <div class="card-head"><h3>Zerodha portfolio</h3><span class="pill ${due ? 'warn' : 'good'}">${due ? 'Upload due' : 'Up to date'}</span></div>
+      <p class="hint" style="margin:0 0 12px">${last ? `Last upload ${last.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}.` : 'No holdings uploaded yet.'} Upload every Sunday: Zerodha Console → Portfolio → Holdings → Download (Equity, then Mutual funds).</p>
+      <label class="btn primary block">Upload holdings file<input type="file" id="zerodha-file" accept=".xlsx,.xls,.csv" multiple hidden></label>
+    </div>
+    ${holdings.length ? `
+    <div class="card">
+      <div class="stats">
+        <div class="stat"><div class="label">Current value</div><div class="value">${inr(s.value, { compact: true })}</div></div>
+        <div class="stat"><div class="label">Invested</div><div class="value">${inr(s.invested, { compact: true })}</div></div>
+        <div class="stat"><div class="label">Gain</div><div class="value ${pnlCls}">${s.pnl >= 0 ? '+' : ''}${s.pnlPct.toFixed(1)}%</div></div>
+      </div>
+      <p class="hint" style="margin:10px 0 0">${s.pnl >= 0 ? 'Up' : 'Down'} <b class="num">${inr(Math.abs(s.pnl))}</b> overall.</p>
+      ${s.value ? `<div class="bar" style="margin-top:12px" role="img" aria-label="Stocks vs funds"><span style="width:${(s.equity.value / s.value) * 100}%;background:var(--info)"></span></div>
+      <div class="legend"><span>Stocks ${inr(s.equity.value, { compact: true })} (${Math.round((s.equity.value / s.value) * 100)}%)</span><span>Funds ${inr(s.mf.value, { compact: true })} (${Math.round((s.mf.value / s.value) * 100)}%)</span></div>` : ''}
+      ${spark ? `<div style="margin-top:12px">${spark}<div class="legend"><span>Value over your last ${hist.length} uploads</span></div></div>` : ''}
+    </div>
+    <div class="group-label"><span>Holdings</span><span>${holdings.length}</span></div>
+    <ul class="rows">${holdings.slice(0, 60).map((x) => `<li class="row">
+      <span class="kind ${x.type === 'mf' ? 'sip' : 'bill'}">${x.type === 'mf' ? 'FUND' : 'STOCK'}</span>
+      <div class="grow"><div class="title">${esc(x.symbol)}</div><div class="meta">${x.qty} × ${inr(x.avg)} → ${inr(x.price)}</div></div>
+      <div class="right"><div class="amount">${inr(x.value)}</div><div class="meta" style="color:var(--${x.pnl >= 0 ? 'good' : 'bad'});font-weight:650">${x.pnl >= 0 ? '+' : '−'}${inr(Math.abs(x.pnl)).replace('−', '')}</div></div></li>`).join('')}</ul>` : ''}
+    <div class="group-label"><span>SIPs</span><span class="num">${inr(sipTotal)}/month</span></div>
+    ${sips.length ? `<ul class="rows">${sips.map((o) => `<li class="row tap" data-act="edit-ob" data-id="${o.id}"><span class="kind sip">SIP</span><div class="grow"><div class="title">${esc(o.name)}</div><div class="meta">${o.schedule.type === 'monthly' ? `Every month on the ${ordinal(o.schedule.day)}` : 'One time'}</div></div><div class="amount">${inr(o.amount)}</div></li>`).join('')}</ul>`
+      : '<p class="empty">Add your SIPs so Baymax reminds you and tracks them: say “add SIP 5000 Axis Bluechip on 7th”.</p>'}`;
+}
+
+/** Read one or more Zerodha files and update holdings. */
+export async function uploadHoldings(files) {
+  let uploaded = [];
+  for (const file of files) uploaded = uploaded.concat(parseHoldings(await readTable(file)));
+  if (!uploaded.length) throw new Error('No holdings found. Use Zerodha Console → Portfolio → Holdings → Download.');
+  const f = fin();
+  f.holdings = mergeHoldings(f.holdings, uploaded);
+  const s = portfolioSummary(f.holdings);
+  f.zerodha = { ...(f.zerodha || {}), lastUpload: new Date().toISOString() };
+  f.zerodha.history = [...(f.zerodha.history || []), { date: ymd(new Date()), value: Math.round(s.value), invested: Math.round(s.invested) }].slice(-104);
+  save();
+  return { count: uploaded.length, summary: s };
+}
+
 function invoices() {
   const now = new Date();
   const list = fin().invoices.filter((i) => (i.direction || 'in') === invDir)
@@ -362,6 +421,14 @@ export function bindMoney(el, rerender) {
     const t = e.target.closest('[data-act]');
     if (!t) return;
     handleMoneyAction(t, rerender);
+  });
+  el.addEventListener('change', async (e) => {
+    if (e.target.id !== 'zerodha-file' || !e.target.files.length) return;
+    try {
+      const r = await uploadHoldings([...e.target.files]);
+      toast(`Updated ${r.count} holdings · ${inr(r.summary.value)} total`);
+    } catch (err) { toast(err.message || 'Couldn’t read that file'); }
+    e.target.value = '';
   });
   el.addEventListener('submit', (e) => {
     if (e.target.id !== 'money-setup') return;

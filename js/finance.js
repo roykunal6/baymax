@@ -315,6 +315,7 @@ export function parseFinanceCommand(text, { fin = emptyFinance(), now = new Date
     return { type: 'spend_query', range, card: card?.id || null, category };
   }
   if (/\b(credit )?card (spends?|spending|bills?|usage)\b/.test(lower)) return { type: 'card_summary' };
+  if (/\b(portfolio|investments?|holdings|zerodha|stocks|mutual funds?)\b/.test(lower) && !/^(add|new)\b/.test(lower)) return { type: 'portfolio' };
   if (/^(show|list|read|what are|pending|my|any)?\s*(my\s+)?(pending\s+|unpaid\s+|open\s+)?invoices\b/.test(lower) || /\binvoices? (pending|due|outstanding)\b/.test(lower)) {
     return { type: 'list_invoices' };
   }

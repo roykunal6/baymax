@@ -22,6 +22,7 @@ import { lock, changePassword } from './auth.js';
 import { cloud } from './cloud.js';
 import { createSync, resetSyncMeta } from './sync.js';
 import { planBankItems } from './bankfeed.js';
+import { uploadDue } from './zerodha.js';
 import { setPaid } from './store.js';
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -784,6 +785,25 @@ startScheduler({
     addMsg('bot', `💳 Payment reminder: ${items.length === 1 ? 'this is' : 'these are'} coming up or overdue.`, { items: lines });
   },
 });
+
+// Weekly Zerodha reminder: Sundays from 10 AM, or any day once the last upload is over a week old.
+// remindedOn syncs, so only one device reminds you each day.
+function checkZerodhaReminder() {
+  const now = new Date();
+  const z = state.finance.zerodha || {};
+  if (!uploadDue(z.lastUpload, now)) return;
+  const sundayMorning = now.getDay() === 0 && now.getHours() >= 10;
+  const overdue = z.lastUpload && now - new Date(z.lastUpload) > 7 * 86400000 && now.getHours() >= 10;
+  if (!sundayMorning && !overdue) return;
+  const today = ymd(now);
+  if (z.remindedOn === today) return;
+  state.finance.zerodha = { ...z, remindedOn: today };
+  save();
+  notify('Zerodha upload', 'Time to upload this week’s holdings file to Baymax.');
+  addMsg('bot', '📈 Time for your weekly Zerodha upload. Open Money → Invest → Upload holdings file.');
+}
+setTimeout(checkZerodhaReminder, 5000);
+setInterval(checkZerodhaReminder, 60000);
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => { /* offline support is optional */ });
