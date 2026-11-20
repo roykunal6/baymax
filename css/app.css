@@ -425,10 +425,10 @@ dialog.sheet.tall { height: calc(100dvh - env(safe-area-inset-top, 0px) - 16px);
 .steps code { word-break: break-all; }
 
 /* ---------------------------------------------------------------- security screens */
-.recovery-code { font: 600 17px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; text-align: center; background: var(--surface-2); border-radius: 14px; padding: 14px 10px; word-break: break-all; user-select: all; -webkit-user-select: all; }
+.recovery-code { font: 600 clamp(13px, 4.1vw, 17px)/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .02em; white-space: nowrap; overflow-x: auto; text-align: center; background: var(--surface-2); border-radius: 14px; padding: 14px 10px; user-select: all; -webkit-user-select: all; }
 .qr { display: grid; place-items: center; }
 .qr img { width: 200px; height: 200px; background: #fff; border-radius: 14px; padding: 8px; }
-.secret-key { font-family: ui-monospace, Menlo, monospace; word-break: break-all; user-select: all; -webkit-user-select: all; }
+.secret-key { font-family: ui-monospace, Menlo, monospace; user-select: all; -webkit-user-select: all; }
 dialog.secure .lock-card { box-shadow: none; max-width: none; padding: 18px max(18px, env(safe-area-inset-left, 0px)) calc(18px + env(safe-area-inset-bottom, 0px)); background: transparent; }
 dialog.secure .lock-card h1 { font-size: 21px; text-align: left; }
 dialog.secure .lock-card > p.muted { text-align: left; margin: -6px 0 2px; }

@@ -178,10 +178,10 @@ async function setupKeys(client, user) {
       const why = passphraseProblem(p1); if (why) return why;
       if (p1 !== p2) return 'The two passphrases don’t match.';
       made = await createKeyring(p1);
-      return (await insertKeyring(client, user.id, made.keyring)) ? 'created' : 'exists';
+      return { exists: !(await insertKeyring(client, user.id, made.keyring)) };
     },
   });
-  if (r === 'exists') return unlockKeys(client, user, await fetchKeyring(client)); // set up on another device meanwhile
+  if (r.exists) return unlockKeys(client, user, await fetchKeyring(client)); // set up on another device meanwhile
   await showRecoveryCode(L, made.recoveryCode, 'Save your recovery code');
   const dev = deviceRecord(user.id, made.keys, made.keyring);
   await saveKeys(dev);
@@ -307,7 +307,7 @@ async function lockScreen(dev) {
     onSubmit: async ({ p }) => {
       if (!p) return 'Enter your passphrase.';
       const b = braked(); if (b) return b;
-      try { await unlockWithPassphrase(dev.keyring, p); right(); return true; } catch { /* maybe changed on another device */ }
+      // The newest keyring when online, so a passphrase changed on another device takes effect here too.
       try { await unlockWithPassphrase(await latestKeyring(dev), p); right(); return true; } catch { return wrong('That passphrase isn’t right.'); }
     },
   });
@@ -417,10 +417,10 @@ async function changePassphraseFlow(toast) {
       await saveKeyring(cloud.client, k);
       dev.keyring = k;
       await updateKeys({ keyring: k });
-      return 'ok';
+      return { ok: true };
     },
   }));
-  if (r === 'ok') toast('Passphrase changed');
+  if (r?.ok) toast('Passphrase changed');
 }
 
 async function newRecoveryFlow(toast) {
@@ -440,11 +440,11 @@ async function newRecoveryFlow(toast) {
         await saveKeyring(cloud.client, made.keyring);
         dev.keyring = made.keyring;
         await updateKeys({ keyring: made.keyring });
-        return made.recoveryCode;
+        return { code: made.recoveryCode };
       },
     });
     if (r === 'cancel') return;
-    await showRecoveryCode(body, r, 'Your new recovery code');
+    await showRecoveryCode(body, r.code, 'Your new recovery code');
     toast('New recovery code saved');
   });
 }
@@ -470,10 +470,10 @@ async function enableTwoStep(toast) {
     submit: 'Turn on', busy: 'Checking…', alt: [cancel],
     onSubmit: async ({ code }) => {
       const { error: e } = await cloud.client.auth.mfa.challengeAndVerify({ factorId: data.id, code: code.replace(/\D/g, '') });
-      return e ? 'That code isn’t right. Check the time on your phone and try the newest code.' : 'ok';
+      return e ? 'That code isn’t right. Check the time on your phone and try the newest code.' : { ok: true };
     },
   }));
-  if (r !== 'ok') { await cloud.client.auth.mfa.unenroll({ factorId: data.id }).catch(() => {}); return; }
+  if (!r?.ok) { await cloud.client.auth.mfa.unenroll({ factorId: data.id }).catch(() => {}); return; }
   toast('Two-step sign-in is on. Other devices will ask for a code next time they open Baymax.');
 }
 
@@ -490,10 +490,19 @@ async function disableTwoStep(toast) {
       const { error: e } = await cloud.client.auth.mfa.challengeAndVerify({ factorId: factor.id, code: code.replace(/\D/g, '') });
       if (e) return 'That code isn’t right.';
       const { error: u } = await cloud.client.auth.mfa.unenroll({ factorId: factor.id });
-      return u ? u.message : 'ok';
+      return u ? u.message : { ok: true };
     },
   }));
-  if (r === 'ok') toast('Two-step sign-in is off');
+  if (r?.ok) toast('Two-step sign-in is off');
+}
+
+/** Change screen-lock settings, always starting from what's saved (never a stale copy). */
+async function setLock(patch) {
+  const cur = (await loadKeys()) || {};
+  const lock = { ...(cur.lock || {}), ...patch };
+  for (const k of Object.keys(lock)) if (lock[k] === undefined) delete lock[k];
+  await updateKeys({ lock });
+  if (cloud.keys) cloud.keys.lock = lock;
 }
 
 const MINUTES = [[0, 'Immediately'], [1, 'After 1 minute'], [5, 'After 5 minutes'], [15, 'After 15 minutes'], [60, 'After 1 hour']];
@@ -520,7 +529,7 @@ export async function renderSecurity(el, toast) {
     <label>Lock <select data-sec="lock-min" ${lock.on ? '' : 'disabled'}>${MINUTES.map(([v, l]) => `<option value="${v}" ${Number(lock.minutes ?? 5) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
     ${bioOK ? `<label class="check"><input type="checkbox" data-sec="bio" ${lock.credId ? 'checked' : ''} ${lock.on ? '' : 'disabled'}> Unlock with Face ID / Touch ID</label>` : '<p class="hint">Face ID / Touch ID isn’t available in this browser; you’ll unlock with your passphrase.</p>'}
     <h4>Devices</h4>
-    <p class="hint">Lost a phone or laptop? Sign out everywhere. Each device erases its copy of your data and keys as soon as it notices (within about an hour at most), and has to sign in, pass two-step and enter your passphrase again.</p>
+    <p class="hint">Lost a phone or laptop? Sign out everywhere. Each device erases its copy of your data and keys as soon as it notices (within about 15 minutes), and has to sign in, pass two-step and enter your passphrase again.</p>
     <button class="btn danger" type="button" data-sec="everywhere">Sign out everywhere</button>`;
 
   const q = (k) => el.querySelector(`[data-sec="${k}"]`);
@@ -530,22 +539,21 @@ export async function renderSecurity(el, toast) {
   if (q('mfa-on')) q('mfa-on').onclick = run(enableTwoStep);
   if (q('mfa-off')) q('mfa-off').onclick = run(disableTwoStep);
   q('lock-on').onchange = async (e) => {
-    await updateKeys({ lock: { ...lock, on: e.target.checked, minutes: Number(q('lock-min').value) } });
+    await setLock({ on: e.target.checked, minutes: Number(q('lock-min').value) });
     touch();
     toast(e.target.checked ? 'Screen lock on' : 'Screen lock off');
     renderSecurity(el, toast);
   };
-  q('lock-min').onchange = async (e) => { await updateKeys({ lock: { ...lock, minutes: Number(e.target.value) } }); toast('Saved'); };
+  q('lock-min').onchange = async (e) => { await setLock({ minutes: Number(e.target.value) }); toast('Saved'); };
   if (q('bio')) q('bio').onchange = async (e) => {
     if (e.target.checked) {
       try {
         const credId = await registerBiometric(cloud.user?.email);
-        await updateKeys({ lock: { ...lock, credId } });
+        await setLock({ credId });
         toast('Face ID / Touch ID unlock is on');
       } catch { toast('Face ID / Touch ID wasn’t set up'); }
     } else {
-      const { credId, ...rest } = lock; // eslint-disable-line no-unused-vars
-      await updateKeys({ lock: rest });
+      await setLock({ credId: undefined });
     }
     renderSecurity(el, toast);
   };
