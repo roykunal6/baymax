@@ -37,6 +37,19 @@ test('credits: salary, refunds, card bill payments', () => {
   assert.deepEqual([t.amount, t.type, t.last4], [34500, 'credit', '1234']);
 });
 
+test('your banks: Axis savings, ICICI home-loan EMI via Axis, HDFC card, Bandhan', () => {
+  let t = p('Debit alert - Axis Bank', 'Dear Customer, INR 45,250.00 has been debited from your A/c no. XX4321 on 05-11-2026 for NACH-DR-ICICI BANK LTD HOME LOAN. Available balance: INR 1,02,340.00', 'alerts@axisbank.com');
+  assert.deepEqual([t.amount, t.type, t.last4, t.bank, t.date], [45250, 'debit', '4321', 'Axis Bank', '2026-11-05']);
+  t = p('Credit alert - Axis Bank', 'INR 1,50,000.00 credited to A/c no. XX4321 on 01-11-2026 by NEFT from THESTRAL MEDIA PVT LTD. Avl Bal INR 1,62,000.00', 'alerts@axisbank.com');
+  assert.deepEqual([t.amount, t.type, t.bank], [150000, 'credit', 'Axis Bank']);
+  t = p('You have done a UPI txn. Check details!', 'Dear Customer, Rs.2,000.00 has been debited from account XX4321 to VPA zomato@hdfcbank ZOMATO on 19-11-26. Your UPI transaction reference number is 431234567890.', 'alerts@axisbank.com');
+  assert.deepEqual([t.amount, t.channel, t.merchant], [2000, 'upi', 'zomato@hdfcbank']);
+  t = p('Alert : Update on your HDFC Bank Credit Card', 'Thank you for using your HDFC Bank Credit Card ending 8899 for Rs 3,499.00 at AMAZON on 18-11-2026 10:12:44.', 'alerts@hdfcbank.net');
+  assert.deepEqual([t.amount, t.type, t.last4, t.merchant, t.bank], [3499, 'debit', '8899', 'AMAZON', 'HDFC Bank']);
+  t = p('Transaction alert', 'INR 500.00 debited from your Bandhan Bank A/c XX7788 on 20-11-2026.', 'alerts@bandhanbank.com');
+  assert.deepEqual([t.amount, t.bank, t.last4], [500, 'Bandhan Bank', '7788']);
+});
+
 test('ignores things that are not transactions', () => {
   assert.equal(p('OTP for transaction', 'Your OTP for transaction of Rs 500.00 at AMAZON is 123456. Do not share.'), null);
   assert.equal(p('Payment due reminder', 'Your credit card payment of Rs 34,500 is due on 15 Dec 2026. Minimum amount due Rs 1,725.'), null);

@@ -7,12 +7,12 @@ const BANKS = [
   [/kotak/i, 'Kotak'], [/yes ?bank/i, 'Yes Bank'], [/indusind/i, 'IndusInd'], [/idfc/i, 'IDFC FIRST'],
   [/americanexpress|amex/i, 'Amex'], [/\bau ?bank|aubank/i, 'AU Bank'], [/federal/i, 'Federal Bank'],
   [/standard ?chartered|sc\.com/i, 'Standard Chartered'], [/hsbc/i, 'HSBC'], [/rbl/i, 'RBL Bank'],
-  [/bank ?of ?baroda|bobcard/i, 'Bank of Baroda'], [/onecard/i, 'OneCard'], [/paytm/i, 'Paytm'], [/citi/i, 'Citi'],
+  [/bank ?of ?baroda|bobcard/i, 'Bank of Baroda'], [/onecard/i, 'OneCard'], [/bandhan/i, 'Bandhan Bank'], [/paytm/i, 'Paytm'], [/citi/i, 'Citi'],
 ];
 
 const NOT_A_TRANSACTION = /\b(otp|one[- ]time password|verification code|statement (is|has been) (generated|ready)|e-?statement|offer|cashback offer|pre-?approved|apply now|credit limit (increase|enhance)|reward points? (balance|summary)|password|login alert|new device|kyc|emi conversion|payment reminder|due date reminder|minimum amount due|is due on|will be debited|will be auto-?debited|scheduled|mandate (registered|created)|request(ed)? (to pay|money)|has requested)\b/i;
 
-const DEBIT = /\b(debited|spent|withdrawn|deducted|paid|purchase|sent|used for|charged|transaction of|txn of|transferred to|autopay|auto-?debit|dr\.?)\b/i;
+const DEBIT = /\b(debited|spent|thank you for using|for using|withdrawn|deducted|paid|purchase|sent|used for|charged|transaction of|txn of|transferred to|autopay|auto-?debit|dr\.?)\b/i;
 const CREDIT = /\b(credited|received|deposited|refund(ed)?|reversed|reversal|cashback (of|credited)|cr\.?)\b/i;
 
 const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11 };

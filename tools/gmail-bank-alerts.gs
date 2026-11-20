@@ -19,7 +19,7 @@ const QUERY = 'newer_than:2d (debited OR credited OR spent OR "transaction" OR U
   '-category:promotions -category:social ' +
   '(from:alerts OR from:bank OR from:card OR from:hdfcbank OR from:icicibank OR from:axisbank OR from:sbi OR from:sbicard ' +
   'OR from:kotak OR from:americanexpress OR from:yesbank OR from:indusind OR from:idfcfirstbank OR from:aubank ' +
-  'OR from:federalbank OR from:sc.com OR from:hsbc OR from:rblbank OR from:bobcard OR from:onecard)';
+  'OR from:federalbank OR from:sc.com OR from:hsbc OR from:rblbank OR from:bobcard OR from:onecard OR from:bandhanbank)';
 
 function syncBankAlerts() {
   const props = PropertiesService.getScriptProperties();
