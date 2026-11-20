@@ -158,7 +158,10 @@ export function monthSummary(fin, now = new Date()) {
   const me = new Date(now.getFullYear(), now.getMonth() + 1, 0);
   const mk = monthKey(now);
   const spends = fin.spends.filter((x) => String(x.date).startsWith(mk));
-  const spent = spends.reduce((a, x) => a + x.amount, 0);
+  const credits = (fin.credits || []).filter((x) => String(x.date).startsWith(mk));
+  const refunds = credits.filter((x) => x.kind === 'refund').reduce((a, x) => a + x.amount, 0);
+  const moneyIn = credits.filter((x) => x.kind !== 'refund').reduce((a, x) => a + x.amount, 0);
+  const spent = Math.max(0, spends.reduce((a, x) => a + x.amount, 0) - refunds);
   const byCategory = {};
   for (const x of spends) byCategory[x.category || 'Other'] = (byCategory[x.category || 'Other'] || 0) + x.amount;
   const byCard = {};
@@ -188,7 +191,7 @@ export function monthSummary(fin, now = new Date()) {
   const savings = income - spent - fixed; // SIPs count as savings
   return {
     month: mk, day, daysInMonth: dim, daysLeft, early: day < 5,
-    spent, byCategory, byCard, spends,
+    spent, refunds, moneyIn, byCategory, byCard, spends,
     spentToday: sumSpends(fin, now, now),
     spentWeek: sumSpends(fin, startOfWeek(now), now),
     emi, sip, bills, fixed, fixedPaid, dues,
@@ -418,12 +421,14 @@ export function parseFinanceCommand(text, { fin = emptyFinance(), now = new Date
   // Cards: "add card HDFC limit 2 lakh due on 15th"
   if ((m = t.match(/^(?:add|new)\s+(?:a\s+)?(?:credit\s+)?card\s+(.+)$/i))) {
     let rest = m[1];
+    const last4M = rest.match(/\b(?:ending|ends)(?:\s+(?:in|with))?\s+(\d{4})\b/i);
+    if (last4M) rest = rest.replace(last4M[0], ' ');
     const lim = rest.match(new RegExp(`\\blimit\\s+(?:of\\s+)?${AMT}`, 'i'));
     const dp = dayPhrase(rest);
     if (lim) rest = rest.replace(lim[0], ' ');
     if (dp) rest = rest.replace(dp.match, ' ');
     const name = tidy(rest.replace(/\bcard\b/i, '')) || 'Card';
-    return { type: 'add_card', name: name.replace(/^\w/, (c) => c.toUpperCase()), limit: lim ? parseAmount(lim[1]) : 0, dueDay: dp ? dp.day : null };
+    return { type: 'add_card', name: name.replace(/^\w/, (c) => c.toUpperCase()), limit: lim ? parseAmount(lim[1]) : 0, dueDay: dp ? dp.day : null, ...(last4M ? { last4: last4M[1] } : {}) };
   }
 
   return null;

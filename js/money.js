@@ -173,9 +173,12 @@ export function cardForm(c = null) {
       { key: 'name', label: 'Card name', type: 'text', required: true, placeholder: 'HDFC Regalia' },
       { key: 'limit', label: 'Credit limit / monthly cap (₹)', type: 'amount', required: false, half: true },
       { key: 'dueDay', label: 'Bill due day', type: 'day', half: true },
+      { key: 'last4', label: 'Last 4 digits of the card (to match bank alerts)', type: 'text', placeholder: '1234' },
     ],
     onSave: (f) => {
-      const data = { name: f.name, limit: f.limit > 0 ? f.limit : 0, dueDay: f.dueDay || null };
+      const last4 = String(f.last4 || '').replace(/\D/g, '').slice(-4);
+      if (f.last4 && last4.length !== 4) return 'Enter the last 4 digits of the card number.';
+      const data = { name: f.name, limit: f.limit > 0 ? f.limit : 0, dueDay: f.dueDay || null, last4 };
       if (c) updateMoney('cards', c.id, data); else addCard(data);
       toast(c ? 'Card saved' : 'Card added');
     },
@@ -343,7 +346,7 @@ function setup() {
     <div class="card"><div class="card-head"><h3>Credit cards</h3><button class="btn small" data-act="add-card">＋ Add card</button></div>
       ${f.cards.length ? `<ul class="rows flat">${f.cards.map((c) => `<li class="row tap" data-act="edit-card" data-id="${c.id}">
         <span class="kind card">CARD</span><div class="grow"><div class="title">${esc(c.name)}</div>
-        <div class="meta">${c.limit ? `Limit ${inr(c.limit)}` : 'No limit set'}${c.dueDay ? ` · bill due on the ${ordinal(c.dueDay)}` : ''}</div></div></li>`).join('')}</ul>` : '<p class="empty">Add your cards to track spends and bill dates per card.</p>'}
+        <div class="meta">${c.last4 ? `•••• ${esc(c.last4)} · ` : ''}${c.limit ? `Limit ${inr(c.limit)}` : 'No limit set'}${c.dueDay ? ` · bill due on the ${ordinal(c.dueDay)}` : ''}</div></div></li>`).join('')}</ul>` : '<p class="empty">Add your cards to track spends and bill dates per card.</p>'}
     </div>`;
 }
 

@@ -201,8 +201,8 @@ export function addInvoice({ party, number = '', amount, dueDate, direction = 'i
   save();
   return inv;
 }
-export function addCard({ name, limit = 0, dueDay = null }) {
-  const c = { id: uid(), name, limit: Number(limit) || 0, dueDay: dueDay ? Number(dueDay) : null, paid: {} };
+export function addCard({ name, limit = 0, dueDay = null, last4 = '' }) {
+  const c = { id: uid(), name, limit: Number(limit) || 0, dueDay: dueDay ? Number(dueDay) : null, last4: String(last4 || '').slice(-4), paid: {} };
   fin().cards.push(c);
   save();
   return c;

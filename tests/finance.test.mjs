@@ -128,6 +128,7 @@ test('finance commands', () => {
   assert.deepEqual(p('set budget to 40k'), { type: 'set_budget', amount: 40000 });
   assert.deepEqual(p('my salary is 1.5 lakh'), { type: 'set_income', amount: 150000 });
   assert.deepEqual(p('add card ICICI Amazon limit 2 lakh due on 18th'), { type: 'add_card', name: 'ICICI Amazon', limit: 200000, dueDay: 18 });
+  assert.deepEqual(p('add card HDFC Regalia ending 1234 limit 3 lakh due on 15th'), { type: 'add_card', name: 'HDFC Regalia', limit: 300000, dueDay: 15, last4: '1234' });
   assert.equal(p('add task buy milk'), null);
   assert.equal(p('remind me to call the bank in 20 minutes'), null);
 });

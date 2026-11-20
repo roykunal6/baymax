@@ -1,0 +1,55 @@
+// POST /api/ingest — receives bank/card alert emails from the Gmail Apps Script
+// (tools/gmail-bank-alerts.gs), reads the transactions, and stores them in the user's synced
+// "bankinbox" list. Baymax then turns each into a spend, or marks an EMI/SIP/card bill paid.
+//
+// Env (Netlify → Site configuration → Environment variables):
+//   INGEST_SECRET              long random string; the Apps Script sends it in x-baymax-secret
+//   SUPABASE_URL               https://<project>.supabase.co
+//   SUPABASE_SERVICE_ROLE_KEY  server-only key (never in the app)
+//   BAYMAX_USER_ID             the Supabase user id whose data this is
+
+import { timingSafeEqual } from 'node:crypto';
+import { parseAlert } from '../../js/bankparse.js';
+
+const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+function sameSecret(a, b) {
+  const x = Buffer.from(String(a || '')), y = Buffer.from(String(b || ''));
+  return x.length === y.length && x.length > 0 && timingSafeEqual(x, y);
+}
+
+export default async (req) => {
+  if (req.method !== 'POST') return json(405, { error: 'POST only' });
+  const env = process.env;
+  if (!env.INGEST_SECRET || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY || !env.BAYMAX_USER_ID) {
+    return json(503, { error: 'Bank alerts are not set up on the server yet' });
+  }
+  if (!sameSecret(req.headers.get('x-baymax-secret'), env.INGEST_SECRET)) return json(401, { error: 'Wrong secret' });
+
+  let body;
+  try { body = await req.json(); } catch { return json(400, { error: 'Send JSON' }); }
+  const messages = Array.isArray(body?.messages) ? body.messages.slice(0, 200) : [];
+  const txns = messages.map((m) => { try { return parseAlert(m); } catch { return null; } }).filter(Boolean);
+  if (!txns.length) return json(200, { received: messages.length, transactions: 0 });
+
+  const now = new Date().toISOString();
+  const rows = txns.map((t) => {
+    const id = `gm-${t.id}`;
+    return { user_id: env.BAYMAX_USER_ID, coll: 'bankinbox', id, data: { ...t, id }, deleted: false, updated_at: now };
+  });
+  // ignore-duplicates: an alert already processed (and removed from the inbox) is never re-added.
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/records?on_conflict=user_id,coll,id`, {
+    method: 'POST',
+    headers: {
+      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+      authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      'content-type': 'application/json',
+      prefer: 'resolution=ignore-duplicates,return=minimal',
+    },
+    body: JSON.stringify(rows),
+  });
+  if (!res.ok) return json(502, { error: `Database refused the alerts (${res.status})` });
+  return json(200, { received: messages.length, transactions: txns.length });
+};
+
+export const config = { path: '/api/ingest' };

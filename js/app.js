@@ -20,6 +20,8 @@ import { avatarSVG } from './avatar.js';
 import { lock, changePassword } from './auth.js';
 import { cloud } from './cloud.js';
 import { createSync, resetSyncMeta } from './sync.js';
+import { planBankItems } from './bankfeed.js';
+import { setPaid } from './store.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -719,11 +721,38 @@ function startCloudSync() {
     userId: cloud.user.id,
     state,
     persist: save,
-    onRemote: () => { renderAll(); },
+    onRemote: () => { processBankInbox(); renderAll(); },
     onStatus: (st) => { cloud.status = st; renderSyncState(); },
   });
   cloud.offSave = onSave(() => cloud.sync.noteLocalChange());
-  cloud.sync.start().catch((e) => console.warn('Sync failed to start', e));
+  cloud.sync.start().then(processBankInbox).catch((e) => console.warn('Sync failed to start', e));
+}
+
+// ---------------------------------------------------------------- bank alerts → spends
+let processingBank = false;
+function processBankInbox() {
+  const items = state.finance.bankInbox || [];
+  if (!items.length || processingBank) return;
+  processingBank = true;
+  try {
+    const plan = planBankItems(state.finance, items);
+    state.finance.spends.push(...plan.spends);
+    state.finance.credits = [...(state.finance.credits || []), ...plan.credits];
+    for (const p of plan.paid) setPaid(p.ref, p.id, p.key, true);
+    state.finance.bankInbox = [];
+    save();
+    const lines = [
+      ...plan.spends.map((x) => `Spent ${inr(x.amount)} · ${x.note} (${x.category})`),
+      ...plan.credits.map((x) => `${x.kind === 'refund' ? 'Refund' : 'Received'} ${inr(x.amount)} · ${x.from}`),
+      ...plan.messages,
+    ];
+    if (lines.length) {
+      addMsg('bot', `🏦 From your bank alerts:`, { items: lines });
+      toast(`${lines.length} bank update${lines.length === 1 ? '' : 's'} added`);
+    }
+  } finally {
+    processingBank = false;
+  }
 }
 
 initSheet();
