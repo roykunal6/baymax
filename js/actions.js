@@ -4,6 +4,7 @@
 import { state, addTask, updateTask, removeTask, findTask, addNote, save, logActivity } from './store.js';
 import { formatDue, formatDuration } from './timeparse.js';
 import { HELP_TEXT } from './parser.js';
+import { executeMoney, briefingExtras } from './money-actions.js';
 
 export const ACTION_TYPES = {
   speak: { label: 'Say something', fields: [{ key: 'text', label: 'Text', type: 'text' }] },
@@ -17,6 +18,9 @@ export const ACTION_TYPES = {
   search: { label: 'Web search', fields: [{ key: 'query', label: 'Search for', type: 'text' }] },
   email: { label: 'Compose email', fields: [{ key: 'to', label: 'To', type: 'text' }, { key: 'subject', label: 'Subject', type: 'text' }, { key: 'body', label: 'Message', type: 'textarea' }] },
   webhook: { label: 'Call webhook (Zapier / Make / n8n)', fields: [{ key: 'url', label: 'Webhook URL', type: 'url' }, { key: 'method', label: 'Method', type: 'select', options: ['POST', 'GET'] }, { key: 'body', label: 'JSON body (optional)', type: 'textarea' }] },
+  finance_summary: { label: 'Money check-up', fields: [] },
+  list_dues: { label: 'Read upcoming payments', fields: [{ key: 'range', label: 'Which', type: 'select', options: ['week', 'month'] }] },
+  list_habits: { label: 'Read my habits', fields: [] },
   wait: { label: 'Wait', fields: [{ key: 'seconds', label: 'Seconds', type: 'number' }] },
 };
 
@@ -33,6 +37,9 @@ export function describeAction(a) {
     case 'search': return `Search the web for “${a.query || ''}”`;
     case 'email': return `Compose email to ${a.to || '…'}`;
     case 'webhook': return `${a.method || 'POST'} webhook ${shortUrl(a.url)}`;
+    case 'finance_summary': return 'Check how my money is doing';
+    case 'list_dues': return `Read payments due this ${a.range || 'week'}`;
+    case 'list_habits': return 'Read my habits';
     case 'wait': return `Wait ${a.seconds || 0}s`;
     default: return a.type;
   }
@@ -74,6 +81,8 @@ function sortByDue(list) {
 
 export async function execute(action, ctx = {}) {
   const a = action || {};
+  const money = await executeMoney(a, ctx);
+  if (money) return money;
   switch (a.type) {
     case 'greet': {
       const name = state.settings.name ? `, ${state.settings.name}` : '';
@@ -101,6 +110,8 @@ export async function execute(action, ctx = {}) {
         reply += ` and ${open.length} open in total.`;
         if (today[0]) reply += ` Next up: ${today[0].title}${today[0].due ? ` at ${new Date(today[0].due).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}.`;
       }
+      const extra = briefingExtras();
+      if (extra) reply += ' ' + extra;
       return { reply, items: today.map((t) => `${t.title} · ${formatDue(t.due)}`) };
     }
 
@@ -142,7 +153,10 @@ export async function execute(action, ctx = {}) {
 
     case 'complete_task': {
       const t = findTask(a.query || '');
-      if (!t) return { reply: `I couldn’t find an open task matching “${a.query}”.` };
+      if (!t) {
+        const habit = await executeMoney({ type: 'habit_done', query: a.query }, ctx);
+        return habit || { reply: `I couldn’t find an open task or habit matching “${a.query}”.` };
+      }
       updateTask(t.id, { done: true, doneAt: new Date().toISOString() });
       logActivity(`Task completed: ${t.title}`);
       return { reply: `Nice! Marked “${t.title}” as done.` };

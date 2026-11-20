@@ -1,17 +1,21 @@
 {
   "name": "Baymax",
   "short_name": "Baymax",
-  "description": "Baymax, a voice-driven personal assistant for tasks, reminders, notes and automations.",
+  "description": "Baymax, a voice-driven personal assistant for your day, money, habits and tasks.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f6f7fb",
-  "theme_color": "#4f46e5",
+  "background_color": "#F4F3EF",
+  "theme_color": "#F4F3EF",
   "icons": [
-    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ],
   "shortcuts": [
-    { "name": "My day", "url": "./?q=what%27s%20my%20day" },
-    { "name": "My tasks", "url": "./?q=what%20are%20my%20tasks" }
+    { "name": "My day", "url": "./?q=what%27s%20my%20day", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Money check-up", "url": "./?q=how%20am%20i%20doing%20this%20month", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Log a spend", "url": "./#money", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
   ]
 }

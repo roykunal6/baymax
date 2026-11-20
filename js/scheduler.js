@@ -2,10 +2,32 @@
 
 import { state, updateTask } from './store.js';
 import { dueTimedRoutines } from './routines.js';
+import { dueItems, addDays, ymd } from './finance.js';
 
-export function startScheduler({ onReminder, onRoutine }) {
+/** Payments due within the reminder window (or overdue) that haven't been announced today. */
+function duesToAnnounce(now) {
+  const fin = state.finance;
+  if (!fin) return [];
+  const today = ymd(now);
+  const items = dueItems(fin, addDays(now, -30), addDays(now, Number(fin.remindDays ?? 2)))
+    .filter((d) => !d.paid && d.direction !== 'in');
+  fin.notified = fin.notified || {};
+  const fresh = items.filter((d) => fin.notified[`${d.ref}:${d.id}:${d.key}`] !== today);
+  for (const d of fresh) fin.notified[`${d.ref}:${d.id}:${d.key}`] = today;
+  // keep the map small
+  for (const [k, v] of Object.entries(fin.notified)) if (v < ymd(addDays(now, -60))) delete fin.notified[k];
+  return fresh;
+}
+
+export function startScheduler({ onReminder, onRoutine, onDues }) {
+  let lastDueCheck = 0;
   const tick = () => {
     const now = new Date();
+    if (onDues && now - lastDueCheck > 60000 && now.getHours() >= 8) {
+      lastDueCheck = +now;
+      const fresh = duesToAnnounce(now);
+      if (fresh.length) { onDues(fresh); }
+    }
     for (const t of state.tasks) {
       if (!t.done && !t.notified && t.due && new Date(t.due) <= now) {
         updateTask(t.id, t.isTimer ? { notified: true, done: true } : { notified: true });

@@ -93,3 +93,14 @@ test('wake word "Baymax"', () => {
   assert.equal(p('hi baymax').type, 'greet');
   assert.equal(p('Baymax').type, 'greet');
 });
+
+test('follow-ups, habits and money routing', () => {
+  assert.deepEqual(p('Add task'), { type: 'ask', field: 'task' });
+  assert.deepEqual(p('add a task'), { type: 'ask', field: 'task' });
+  assert.deepEqual(p('take a note'), { type: 'ask', field: 'note' });
+  assert.deepEqual(p('add habit meditate 10 minutes'), { type: 'add_habit', name: 'meditate 10 minutes' });
+  assert.equal(p('spent 450 on lunch').type, 'add_spend');
+  assert.equal(p('remind me to pay rent tomorrow at 10am').type, 'remind');
+  assert.equal(p('add task pay rent tomorrow').type, 'add_task');
+  assert.equal(p("what's due this week").type, 'list_dues');
+});

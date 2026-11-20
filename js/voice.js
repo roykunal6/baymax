@@ -106,13 +106,26 @@ function createClaudeListener({ onInterim, onFinal, onState, onError }) {
 }
 
 function createBrowserListener({ lang = 'en-IN', onInterim, onFinal, onState, onError }) {
+  // Works around Safari on iPhone, which often never marks a result as final and never ends on
+  // its own: a short pause after speech counts as the end of the command.
   let rec = null;
   let active = false;
   let keepAlive = false;
+  let finalText = '';
+  let interimText = '';
+  let silence = null;
+
+  const deliver = () => {
+    const text = (finalText + ' ' + interimText).replace(/\s+/g, ' ').trim();
+    finalText = ''; interimText = '';
+    onInterim?.('');
+    if (text) onFinal?.(text);
+  };
 
   function start(continuous = false) {
     if (active) return;
     keepAlive = continuous;
+    finalText = ''; interimText = '';
     rec = new Recognition();
     rec.lang = lang;
     rec.interimResults = true;
@@ -121,20 +134,28 @@ function createBrowserListener({ lang = 'en-IN', onInterim, onFinal, onState, on
 
     rec.onstart = () => { active = true; onState?.('listening'); };
     rec.onresult = (e) => {
-      let interim = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
+      let fin = '', interim = '';
+      for (let i = keepAlive ? e.resultIndex : 0; i < e.results.length; i++) {
         const r = e.results[i];
-        if (r.isFinal) onFinal?.(r[0].transcript.trim());
+        if (r.isFinal) fin += r[0].transcript + ' ';
         else interim += r[0].transcript;
       }
-      if (interim) onInterim?.(interim);
+      if (keepAlive) finalText += fin; else finalText = fin;
+      interimText = interim;
+      onInterim?.((finalText + ' ' + interimText).trim());
+      clearTimeout(silence);
+      silence = setTimeout(() => {
+        if (keepAlive) deliver();
+        else try { rec.stop(); } catch { /* already stopped */ }
+      }, 1300);
     };
     rec.onerror = (e) => {
       const map = {
-        'not-allowed': 'Microphone permission was denied. Allow mic access in your browser settings.',
+        'not-allowed': 'Microphone permission was denied. Allow it for this site in your browser settings.',
+        'service-not-allowed': 'Voice input is turned off on this device. On iPhone, turn on Siri (Settings → Siri) and open Baymax in Safari.',
         'no-speech': 'I didn’t hear anything. Tap the mic and try again.',
         'audio-capture': 'No microphone found.',
-        network: 'Speech recognition needs an internet connection in this browser.',
+        network: 'Voice input needs an internet connection.',
       };
       if (e.error === 'aborted') return;
       if (e.error === 'no-speech' && keepAlive) return;
@@ -142,7 +163,9 @@ function createBrowserListener({ lang = 'en-IN', onInterim, onFinal, onState, on
       onError?.(map[e.error] || `Voice error: ${e.error}`);
     };
     rec.onend = () => {
+      clearTimeout(silence);
       active = false;
+      deliver();
       if (keepAlive) { try { rec.start(); return; } catch { /* fall through */ } }
       onState?.('idle');
     };
@@ -152,6 +175,14 @@ function createBrowserListener({ lang = 'en-IN', onInterim, onFinal, onState, on
   function stop() { keepAlive = false; try { rec?.stop(); } catch { /* ignore */ } }
 
   return { start, stop, get active() { return active; }, setLang(l) { lang = l; } };
+}
+
+/** iPhone only lets a page speak after a tap. Call this from a tap handler once. */
+let unlocked = false;
+export function unlockSpeech() {
+  if (unlocked || inClaude || typeof speechSynthesis === 'undefined') return;
+  unlocked = true;
+  try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch { /* ignore */ }
 }
 
 let voicesCache = [];

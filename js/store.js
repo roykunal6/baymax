@@ -1,5 +1,7 @@
 // Persistence in localStorage, with a tiny pub/sub so the UI re-renders on change.
 
+import { emptyFinance, ymd, addDays, nextMonthlyDate, monthKey } from './finance.js';
+
 const KEY = 'voice-assistant:v1';
 const listeners = new Set();
 
@@ -59,10 +61,24 @@ function load() {
         tasks: s.tasks || [], notes: s.notes || [], routines: s.routines || [],
         history: s.history || [], log: s.log || [],
         settings: { ...DEFAULT_SETTINGS, ...(s.settings || {}) },
+        finance: { ...emptyFinance(), ...(s.finance || {}) },
+        habits: s.habits || defaultHabits(),
       };
     }
   } catch { /* storage blocked or corrupt: start fresh */ }
-  return { tasks: [], notes: [], routines: defaultRoutines(), history: [], log: [], settings: { ...DEFAULT_SETTINGS } };
+  return fresh();
+}
+
+function fresh() {
+  return { tasks: [], notes: [], routines: defaultRoutines(), history: [], log: [], settings: { ...DEFAULT_SETTINGS }, finance: emptyFinance(), habits: defaultHabits() };
+}
+
+function defaultHabits() {
+  return [
+    { id: uid(), name: 'Drink 8 glasses of water', log: {} },
+    { id: uid(), name: 'Exercise 30 minutes', log: {} },
+    { id: uid(), name: 'Read 20 pages', log: {} },
+  ];
 }
 
 export const state = load();
@@ -148,10 +164,92 @@ export function importData(json) {
   state.tasks = data.tasks; state.notes = data.notes || []; state.routines = data.routines;
   state.history = data.history || []; state.log = data.log || [];
   state.settings = { ...state.settings, ...(data.settings || {}) };
+  state.finance = { ...emptyFinance(), ...(data.finance || {}) };
+  state.habits = data.habits || state.habits;
   save();
 }
 export function wipe() {
   try { localStorage.removeItem(KEY); } catch { /* ignore */ }
-  Object.assign(state, { tasks: [], notes: [], routines: defaultRoutines(), history: [], log: [], settings: { ...DEFAULT_SETTINGS } });
+  Object.assign(state, fresh());
   save();
+}
+
+// ---- Money ---------------------------------------------------------------
+const fin = () => state.finance;
+
+export function addSpend({ amount, note = '', category = 'Other', method = 'upi', date = ymd(new Date()) }) {
+  const x = { id: uid(), amount: Number(amount), note, category, method, date };
+  fin().spends.push(x);
+  save();
+  return x;
+}
+export function addObligation({ kind, name, amount, schedule, endMonth = null, startMonth = null }) {
+  // A new monthly payment starts from its next due date, so past months never show as missed.
+  if (!startMonth && schedule?.type === 'monthly') startMonth = monthKey(nextMonthlyDate(schedule.day, new Date()));
+  const o = { id: uid(), kind, name, amount: Number(amount), schedule, endMonth, startMonth, paid: {} };
+  fin().obligations.push(o);
+  save();
+  return o;
+}
+export function addInvoice({ party, number = '', amount, dueDate, direction = 'in', issueDate = ymd(new Date()) }) {
+  const inv = { id: uid(), party, number, amount: Number(amount), dueDate, direction, issueDate, paidAt: null };
+  fin().invoices.push(inv);
+  save();
+  return inv;
+}
+export function addCard({ name, limit = 0, dueDay = null }) {
+  const c = { id: uid(), name, limit: Number(limit) || 0, dueDay: dueDay ? Number(dueDay) : null, paid: {} };
+  fin().cards.push(c);
+  save();
+  return c;
+}
+/** Update or delete an item in one of the money lists. */
+export function updateMoney(list, id, patch) {
+  const item = fin()[list].find((x) => x.id === id);
+  if (item) { Object.assign(item, patch); save(); }
+  return item;
+}
+export function removeMoney(list, id) {
+  fin()[list] = fin()[list].filter((x) => x.id !== id);
+  save();
+}
+/** Toggle paid for one occurrence (obligation/card: key = YYYY-MM or 'once'; invoice: paidAt). */
+export function setPaid(ref, id, key, paid = true) {
+  if (ref === 'invoice') return updateMoney('invoices', id, { paidAt: paid ? ymd(new Date()) : null });
+  const list = ref === 'card' ? 'cards' : 'obligations';
+  const item = fin()[list].find((x) => x.id === id);
+  if (!item) return null;
+  item.paid = item.paid || {};
+  if (paid) item.paid[key] = ymd(new Date()); else delete item.paid[key];
+  save();
+  return item;
+}
+
+// ---- Habits --------------------------------------------------------------
+export function addHabit(name) {
+  const h = { id: uid(), name, log: {} };
+  state.habits.push(h);
+  save();
+  return h;
+}
+export function toggleHabit(id, day = ymd(new Date()), done) {
+  const h = state.habits.find((x) => x.id === id);
+  if (!h) return null;
+  const val = done ?? !h.log[day];
+  if (val) h.log[day] = true; else delete h.log[day];
+  save();
+  return h;
+}
+export function removeHabit(id) { state.habits = state.habits.filter((h) => h.id !== id); save(); }
+export function habitStreak(h, now = new Date()) {
+  let n = 0;
+  let d = h.log[ymd(now)] ? now : addDays(now, -1); // today not done yet doesn't break the streak
+  while (h.log[ymd(d)]) { n++; d = addDays(d, -1); }
+  return n;
+}
+export function findHabit(query) {
+  const q = String(query || '').toLowerCase();
+  const words = q.split(/\s+/).filter((w) => w.length > 2);
+  return state.habits.find((h) => h.name.toLowerCase() === q) ||
+    state.habits.find((h) => words.length && words.some((w) => h.name.toLowerCase().includes(w))) || null;
 }

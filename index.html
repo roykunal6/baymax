@@ -4,152 +4,208 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Baymax</title>
-  <meta name="description" content="Baymax, a voice-driven personal assistant for tasks, reminders, notes and automations.">
-  <meta name="theme-color" content="#4f46e5">
+  <meta name="description" content="Baymax, a voice-driven personal assistant for your day, money, habits and tasks.">
+  <meta name="theme-color" content="#F4F3EF" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0D0E11" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Baymax">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand"><img src="icon.svg" alt="" width="28" height="28"> <span>Baymax</span></div>
-    <div class="status" id="status" aria-live="polite"></div>
+  <header class="appbar">
+    <div class="appbar-inner">
+      <div class="brand"><span class="brand-mark" id="brand-mark" aria-hidden="true"></span><span>Baymax</span></div>
+      <div class="status" id="status" aria-live="polite"></div>
+    </div>
   </header>
 
-  <main>
-    <!-- Assistant / chat -->
-    <section class="view active" id="view-assistant" aria-label="Assistant">
+  <main id="main">
+    <!-- Home dashboard -->
+    <section class="view" id="view-home" aria-label="Home"></section>
+
+    <!-- Chat with Baymax -->
+    <section class="view" id="view-chat" aria-label="Baymax">
       <div class="chat" id="chat" aria-live="polite"></div>
-      <div class="suggestions" id="suggestions"></div>
-      <div class="composer">
-        <div class="interim" id="interim"></div>
-        <form id="text-form" class="input-row" autocomplete="off">
-          <input id="text-input" type="text" placeholder="Ask Baymax…" aria-label="Command">
-          <button type="submit" class="icon-btn" aria-label="Send">
-            <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M3 20.5 21 12 3 3.5v6.6L15 12 3 13.9z"/></svg>
-          </button>
-        </form>
-        <button id="mic" class="mic" aria-label="Tap to talk" aria-pressed="false">
-          <svg viewBox="0 0 24 24" width="34" height="34"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z"/></svg>
-        </button>
-      </div>
     </section>
+
+    <!-- Money -->
+    <section class="view" id="view-money" aria-label="Money"></section>
 
     <!-- Tasks -->
     <section class="view" id="view-tasks" aria-label="Tasks">
-      <div class="view-head">
-        <h2>Tasks &amp; reminders</h2>
-        <div class="seg" role="tablist" id="task-filter">
-          <button data-filter="open" class="on">Open</button>
-          <button data-filter="today">Today</button>
-          <button data-filter="done">Done</button>
+      <div class="page-head">
+        <h1>Tasks</h1>
+        <div class="seg" id="task-filter" role="tablist">
+          <button type="button" data-filter="open" class="on">Open</button>
+          <button type="button" data-filter="today">Today</button>
+          <button type="button" data-filter="done">Done</button>
         </div>
       </div>
-      <form id="task-form" class="card add-row">
-        <input id="task-title" placeholder="New task…  e.g. “call Ravi tomorrow at 4pm”" required>
+      <form id="task-form" class="add-bar">
+        <input id="task-title" placeholder="Add a task… e.g. “call Ravi tomorrow at 4pm”" required autocomplete="off">
         <button class="btn primary">Add</button>
       </form>
-      <ul class="list" id="task-list"></ul>
+      <ul class="rows" id="task-list"></ul>
     </section>
 
-    <!-- Routines -->
-    <section class="view" id="view-routines" aria-label="Routines">
-      <div class="view-head">
-        <h2>Routines</h2>
-        <button class="btn primary" id="new-routine">+ New routine</button>
+    <!-- More: habits, routines, notes, settings -->
+    <section class="view" id="view-more" aria-label="More">
+      <div class="page-head">
+        <h1>More</h1>
       </div>
-      <p class="hint">A routine runs several actions in a row. Trigger it with a voice phrase, a daily time, or a tap.</p>
-      <div id="routine-list" class="routine-grid"></div>
-      <h3 class="sub">Recent activity</h3>
-      <ul class="list compact" id="activity"></ul>
-    </section>
-
-    <!-- Notes -->
-    <section class="view" id="view-notes" aria-label="Notes">
-      <div class="view-head"><h2>Notes</h2></div>
-      <form id="note-form" class="card add-row">
-        <input id="note-text" placeholder="Quick note…" required>
-        <button class="btn primary">Save</button>
-      </form>
-      <input id="note-search" class="search" type="search" placeholder="Search notes">
-      <ul class="list" id="note-list"></ul>
-    </section>
-
-    <!-- Settings -->
-    <section class="view" id="view-settings" aria-label="Settings">
-      <div class="view-head"><h2>Settings</h2></div>
-      <form id="settings-form" class="card settings">
-        <label>Your name <input name="name" placeholder="Used in greetings"></label>
-        <label class="row"><input type="checkbox" name="speak"> Speak replies out loud</label>
-        <label class="row"><input type="checkbox" name="continuous"> Keep listening after each command</label>
-        <label>Voice <select name="voiceName" id="voice-select"><option value="">System default</option></select></label>
-        <label>Language
-          <select name="lang">
-            <option value="en-IN">English (India)</option>
-            <option value="en-US">English (US)</option>
-            <option value="en-GB">English (UK)</option>
-            <option value="hi-IN">Hindi</option>
-          </select>
-        </label>
-        <label>Speech rate <input type="range" name="rate" min="0.7" max="1.4" step="0.1"></label>
-        <fieldset>
-          <legend>AI mode (optional)</legend>
-          <p class="hint">Commands the built-in parser doesn’t understand are sent to Claude through your own server
-            (<code>api/assistant.php</code>). See README for setup.</p>
-          <label class="row"><input type="checkbox" name="ai"> Use AI for unrecognised commands</label>
-          <label>Endpoint <input name="aiUrl" placeholder="api/assistant.php"></label>
-          <label>Access PIN <input name="aiPin" type="password" autocomplete="off"></label>
-        </fieldset>
-      </form>
-      <div class="card settings">
-        <h3>Notifications</h3>
-        <p class="hint" id="notif-state"></p>
-        <button class="btn" id="notif-btn">Enable notifications</button>
+      <div class="seg wide" id="more-seg" role="tablist">
+        <button type="button" data-sub="habits" class="on">Habits</button>
+        <button type="button" data-sub="routines">Routines</button>
+        <button type="button" data-sub="notes">Notes</button>
+        <button type="button" data-sub="settings">Settings</button>
       </div>
-      <div class="card settings">
-        <h3>Backup</h3>
-        <div class="btn-row">
-          <button class="btn" id="export-btn">Export data</button>
-          <label class="btn">Import <input type="file" id="import-file" accept="application/json" hidden></label>
-          <button class="btn danger" id="wipe-btn">Erase everything</button>
+
+      <div class="sub on" id="more-habits">
+        <form id="habit-form" class="add-bar">
+          <input id="habit-name" placeholder="New habit… e.g. “Meditate 10 minutes”" required autocomplete="off">
+          <button class="btn primary">Add</button>
+        </form>
+        <div id="habit-list"></div>
+      </div>
+
+      <div class="sub" id="more-routines">
+        <p class="hint">A routine runs several steps in a row. Start it with a voice phrase, a daily time, or a tap.</p>
+        <button class="btn primary block" id="new-routine" type="button">New routine</button>
+        <div id="routine-list" class="grid-cards"></div>
+        <h3 class="section-title">Recent activity</h3>
+        <ul class="rows compact" id="activity"></ul>
+      </div>
+
+      <div class="sub" id="more-notes">
+        <form id="note-form" class="add-bar">
+          <input id="note-text" placeholder="Quick note…" required autocomplete="off">
+          <button class="btn primary">Save</button>
+        </form>
+        <input id="note-search" class="search" type="search" placeholder="Search notes">
+        <ul class="rows" id="note-list"></ul>
+      </div>
+
+      <div class="sub" id="more-settings">
+        <form id="settings-form" class="card form-grid">
+          <div class="avatar-setting">
+            <span id="avatar-preview" class="avatar-preview"></span>
+            <div class="grow">
+              <b>Baymax’s picture</b>
+              <p class="hint" style="margin:2px 0 8px">Use any picture from your phone. It stays on this device only.</p>
+              <div class="btn-row">
+                <label class="btn small">Choose picture<input type="file" id="avatar-file" accept="image/*" hidden></label>
+                <button type="button" class="btn small" id="avatar-reset">Use default</button>
+              </div>
+            </div>
+          </div>
+          <label>Your name <input name="name" placeholder="Used in greetings" autocomplete="off"></label>
+          <label class="check"><input type="checkbox" name="speak"> Speak replies out loud</label>
+          <label class="check"><input type="checkbox" name="continuous"> Keep listening after each command</label>
+          <label>Voice <select name="voiceName" id="voice-select"><option value="">System default</option></select></label>
+          <label>Language
+            <select name="lang">
+              <option value="en-IN">English (India)</option>
+              <option value="en-US">English (US)</option>
+              <option value="en-GB">English (UK)</option>
+              <option value="hi-IN">Hindi</option>
+            </select>
+          </label>
+          <label>Speech rate <input type="range" name="rate" min="0.7" max="1.4" step="0.1"></label>
+          <fieldset>
+            <legend>AI mode (optional)</legend>
+            <p class="hint">Commands Baymax doesn’t understand go to Claude through your own server (<code>api/assistant.php</code>). Not available on Netlify.</p>
+            <label class="check"><input type="checkbox" name="ai"> Use AI for unrecognised commands</label>
+            <label>Endpoint <input name="aiUrl" placeholder="api/assistant.php" autocomplete="off"></label>
+            <label>Access PIN <input name="aiPin" type="password" autocomplete="off"></label>
+          </fieldset>
+        </form>
+        <div class="card">
+          <h3>Notifications</h3>
+          <p class="hint" id="notif-state"></p>
+          <button class="btn" id="notif-btn" type="button">Turn on notifications</button>
+        </div>
+        <div class="card">
+          <h3>Backup</h3>
+          <p class="hint">Everything is stored only on this device. Export a backup to move it to another phone.</p>
+          <div class="btn-row">
+            <button class="btn" id="export-btn" type="button">Export</button>
+            <label class="btn">Import <input type="file" id="import-file" accept="application/json" hidden></label>
+            <button class="btn danger" id="wipe-btn" type="button">Erase everything</button>
+          </div>
         </div>
       </div>
-      <p class="hint center">Data is stored only in this browser. Routines and reminders fire while the app is open.</p>
     </section>
   </main>
 
+  <!-- Chat composer: shown on the Baymax tab -->
+  <div class="composer" id="composer">
+    <div class="suggestions" id="suggestions"></div>
+    <div class="interim" id="interim"></div>
+    <div class="composer-row">
+      <form id="text-form" class="input-pill" autocomplete="off">
+        <input id="text-input" type="text" placeholder="Ask Baymax…" aria-label="Command" enterkeyhint="send">
+        <button type="submit" class="icon-btn" aria-label="Send">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6 3.4 10.1 15 12 3.4 13.9z"/></svg>
+        </button>
+      </form>
+      <button id="mic" class="mic" type="button" aria-label="Tap to talk" aria-pressed="false">
+        <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z"/></svg>
+      </button>
+    </div>
+  </div>
+
   <nav class="tabs" aria-label="Sections">
-    <button data-view="assistant" class="on"><svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z"/></svg>Baymax</button>
-    <button data-view="tasks"><svg viewBox="0 0 24 24"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>Tasks<span class="badge" id="task-badge" hidden></span></button>
-    <button data-view="routines"><svg viewBox="0 0 24 24"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>Routines</button>
-    <button data-view="notes"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zm-1 7V3.5L18.5 9zM8 13h8v2H8zm0 4h8v2H8z"/></svg>Notes</button>
-    <button data-view="settings"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.3 7.3 0 0 0-1.7-1L15 3h-4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.3 7.3 0 0 0 1.7 1L11 21h4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>Settings</button>
+    <button type="button" data-view="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2 3 10v10.5c0 .5.4.9.9.9H9v-6.2h6v6.2h5.1c.5 0 .9-.4.9-.9V10z"/></svg><span>Home</span></button>
+    <button type="button" data-view="chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z"/></svg><span>Baymax</span></button>
+    <button type="button" data-view="money"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6H5.5a1.5 1.5 0 0 1 0-3H18V1H5.5A3.5 3.5 0 0 0 2 4.5V19a3 3 0 0 0 3 3h15a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zm-3 9.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg><span>Money</span><i class="badge" id="money-badge" hidden></i></button>
+    <button type="button" data-view="tasks"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg><span>Tasks</span><i class="badge" id="task-badge" hidden></i></button>
+    <button type="button" data-view="more"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zm9 0h7v7h-7zM4 13h7v7H4zm9 0h7v7h-7z"/></svg><span>More</span></button>
   </nav>
 
+  <!-- Generic form sheet (spends, dues, invoices, cards, habits) -->
+  <dialog id="sheet" class="sheet">
+    <form method="dialog" id="sheet-form">
+      <div class="sheet-grip" aria-hidden="true"></div>
+      <h2 id="sheet-title"></h2>
+      <div id="sheet-fields" class="form-grid"></div>
+      <div class="btn-row end">
+        <button type="button" class="btn danger" id="sheet-delete">Delete</button>
+        <span class="spacer"></span>
+        <button value="cancel" class="btn" formnovalidate>Cancel</button>
+        <button value="save" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Routine editor -->
-  <dialog id="routine-dialog">
+  <dialog id="routine-dialog" class="sheet">
     <form method="dialog" id="routine-form" class="routine-form">
+      <div class="sheet-grip" aria-hidden="true"></div>
       <h2 id="routine-dialog-title">Routine</h2>
-      <label>Name <input name="name" required placeholder="e.g. Morning briefing"></label>
-      <label>Voice phrases <span class="hint">(comma-separated, optional)</span>
-        <input name="phrases" placeholder="good morning, start my day"></label>
+      <label>Name <input name="name" required placeholder="e.g. Morning briefing" autocomplete="off"></label>
+      <label>Voice phrases <span class="hint inline">(comma-separated, optional)</span>
+        <input name="phrases" placeholder="good morning, start my day" autocomplete="off"></label>
       <fieldset class="trigger">
         <legend>Automatic trigger</legend>
-        <label class="row"><input type="radio" name="ttype" value="voice"> Only when I say it / tap run</label>
-        <label class="row"><input type="radio" name="ttype" value="time"> Every day at
-          <input type="time" name="time" value="09:00"></label>
+        <label class="check"><input type="radio" name="ttype" value="voice"> Only when I say it or tap Run</label>
+        <label class="check"><input type="radio" name="ttype" value="time"> Every day at <input type="time" name="time" value="09:00"></label>
         <div class="days" id="days"></div>
       </fieldset>
       <fieldset>
-        <legend>Actions <span class="hint">(run top to bottom)</span></legend>
+        <legend>Steps <span class="hint inline">(run top to bottom)</span></legend>
         <ol id="action-list" class="action-list"></ol>
         <div class="add-action">
-          <select id="action-type"></select>
+          <select id="action-type" aria-label="Step type"></select>
           <button type="button" class="btn" id="add-action">Add step</button>
         </div>
       </fieldset>
-      <label class="row"><input type="checkbox" name="enabled" checked> Enabled</label>
+      <label class="check"><input type="checkbox" name="enabled" checked> Enabled</label>
       <div class="btn-row end">
         <button type="button" class="btn danger" id="delete-routine">Delete</button>
         <span class="spacer"></span>

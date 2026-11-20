@@ -5,6 +5,7 @@
 // AI endpoint produce, so a single executor (actions.js) runs all of them.
 
 import { parseTime, parseDuration, tidy } from './timeparse.js';
+import { parseFinanceCommand } from './finance.js';
 
 const SITES = {
   google: 'https://www.google.com', gmail: 'https://mail.google.com', youtube: 'https://www.youtube.com',
@@ -54,7 +55,7 @@ function stripQuotes(s) { return s.replace(/^["'“‘]+|["'”’]+$/g, '').tri
 
 /**
  * @param {string} input
- * @param {{routines?: Array, now?: Date}} ctx
+ * @param {{routines?: Array, now?: Date, fin?: object}} ctx
  * @returns {{type: string, [k: string]: any}}
  */
 export function parseCommand(input, ctx = {}) {
@@ -78,6 +79,17 @@ export function parseCommand(input, ctx = {}) {
     return { type: 'briefing' };
   }
 
+  // Incomplete commands: ask a follow-up question instead of failing
+  if (/^(?:add|create|new|make)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:task|to-?do|item)$/.test(lower)) return { type: 'ask', field: 'task' };
+  if (/^(?:take|make|add|new)\s+(?:a\s+)?note$/.test(lower)) return { type: 'ask', field: 'note' };
+  if (/^(?:add|log|record|new)\s+(?:an?\s+)?(?:expense|spend|spending|payment)$/.test(lower)) return { type: 'ask', field: 'spend' };
+  if (/^(?:add|new)\s+(?:a\s+)?habit$/.test(lower)) return { type: 'ask', field: 'habit' };
+
+  // Habits
+  let hm = lower.match(/^(?:add|new|create|start|track)\s+(?:a\s+)?(?:new\s+)?habit\s+(?:to\s+|of\s+|called\s+)?(.+)$/);
+  if (hm) return { type: 'add_habit', name: tidy(text.slice(text.length - hm[1].length)) };
+  if (/^(?:show|list|what are|how are)\s+(?:my\s+)?habits/.test(lower)) return { type: 'list_habits' };
+
   // Timer: "set a timer for 5 minutes", "timer 10 minutes", "5 minute timer"
   let m = lower.match(/^(?:set\s+(?:a|an)\s+|start\s+(?:a|an)\s+)?timer\s+(?:for\s+)?(.+)$/) ||
           lower.match(/^(?:set\s+(?:a|an)\s+|start\s+(?:a|an)\s+)?(.+?)\s+timer$/);
@@ -97,6 +109,10 @@ export function parseCommand(input, ctx = {}) {
     return { type: 'remind', title: title || 'Reminder', due: t.date.toISOString() };
   }
 
+  // Money: spends, EMIs, SIPs, bills, invoices, budget
+  const money = parseFinanceCommand(text, { fin: ctx.fin, now });
+  if (money) return money;
+
   // Tasks: list
   if (/^(?:what(?:'s| is| are)|show|list|read|tell me|get)\b.*\b(?:tasks?|to-?dos?|to do list|todo list)\b/.test(lower) ||
       /^(?:my\s+)?(?:tasks|to-?dos?)$/.test(lower) || /^what do i (?:have|need) to do/.test(lower)) {
@@ -112,7 +128,8 @@ export function parseCommand(input, ctx = {}) {
   // Tasks: complete — "mark buy milk as done", "complete task buy milk", "I finished buy milk", "done with X"
   m = lower.match(/^(?:mark|tick|check off)\s+(?:task\s+)?(.+?)\s+(?:as\s+)?(?:done|complete|completed|finished)$/) ||
       lower.match(/^(?:complete|finish|finished|done with|i (?:have )?(?:finished|completed|done))\s+(?:the\s+)?(?:task\s+)?(.+)$/) ||
-      lower.match(/^(?:check off|tick off)\s+(?:task\s+)?(.+)$/);
+      lower.match(/^(?:check off|tick off)\s+(?:task\s+)?(.+)$/) ||
+      lower.match(/^(?:i\s+)?(?:did|done)\s+(?:my\s+|the\s+|today'?s\s+)?(.+)$/);
   if (m) return { type: 'complete_task', query: stripQuotes(m[1]) };
 
   // Tasks: delete
@@ -161,6 +178,11 @@ export function parseCommand(input, ctx = {}) {
 }
 
 export const HELP_TEXT = [
+  'Spend: “spent 450 on lunch with HDFC card” · “how much did I spend this week”',
+  'Money: “how am I doing this month” · “what’s due this week”',
+  'Dues: “add EMI car loan 18500 on 10th” · “add SIP 5000 Axis Bluechip on 7th” · “paid electricity bill”',
+  'Invoices: “add Thestral invoice 45000 due next Friday” · “Thestral invoice T-12 paid”',
+  'Habits: “add habit meditate” · “done meditate”',
   'Add task: “add task send FCL quote to Ravi tomorrow at 11”',
   'Reminder: “remind me to call the bank in 20 minutes”',
   'Tasks: “what are my tasks today” · “mark send quote as done”',

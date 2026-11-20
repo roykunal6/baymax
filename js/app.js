@@ -1,21 +1,60 @@
-// UI wiring: chat, voice, tabs, tasks, notes, routines editor, settings.
+// App wiring: tabs, chat + voice, Home dashboard, Money, Tasks, More (habits, routines, notes, settings).
 
 import {
   state, subscribe, save, addTask, updateTask, removeTask, addNote, removeNote,
   upsertRoutine, removeRoutine, pushHistory, exportData, importData, wipe, uid,
+  addHabit, toggleHabit, removeHabit, habitStreak,
 } from './store.js';
 import { parseCommand } from './parser.js';
 import { parseTime, formatDue, tidy } from './timeparse.js';
 import { execute, ACTION_TYPES, describeAction } from './actions.js';
 import { runRoutine, nextRunText } from './routines.js';
 import { startScheduler, requestNotifications, notify } from './scheduler.js';
-import { createListener, speak, stopSpeaking, chime, getVoices, voiceSupported, initVoice } from './voice.js';
+import { createListener, speak, stopSpeaking, chime, getVoices, voiceSupported, initVoice, unlockSpeech } from './voice.js';
 import { askAI, builtInAI } from './ai.js';
+import { parseAmount, parseFinanceCommand, overdueItems, inr, ymd, addDays, KIND_LABEL } from './finance.js';
+import { renderHome, bindHome } from './dashboard.js';
+import { renderMoney, bindMoney, handleMoneyAction, setToast } from './money.js';
+import { initSheet, openSheet } from './sheet.js';
+import { avatarSVG } from './avatar.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const fe = (f, n) => f.elements.namedItem(n);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// ---------------------------------------------------------------- avatar
+/** Baymax's picture: the user's own image if they chose one, else the built-in avatar. */
+function avatarHTML(size, variant = 'face') {
+  const img = state.settings.avatarImage;
+  if (img && /^data:image\//.test(img)) return `<img class="avatar avatar-img" src="${esc(img)}" width="${size}" height="${size}" alt="Baymax">`;
+  return avatarSVG({ size, variant });
+}
+function renderAvatars() {
+  $('#brand-mark').innerHTML = avatarHTML(34);
+  $('#avatar-preview').innerHTML = avatarHTML(72, 'full');
+}
+
+// ---------------------------------------------------------------- views
+let currentView = 'home';
+function showView(name, { scroll = true } = {}) {
+  if (!$(`#view-${name}`)) name = 'home';
+  currentView = name;
+  $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${name}`));
+  $$('.tabs button').forEach((b) => { const on = b.dataset.view === name; b.classList.toggle('on', on); b.setAttribute('aria-current', on ? 'page' : 'false'); });
+  document.body.classList.toggle('chat-open', name === 'chat');
+  try { localStorage.setItem('voice-assistant:tab', name); } catch { /* ignore */ }
+  if (name === 'chat') { measureComposer(); scrollChat(false); } else if (scroll) window.scrollTo(0, 0);
+  if (name === 'home') renderHomeView();
+  if (name === 'money') renderMoneyView();
+}
+$$('.tabs button').forEach((b) => b.addEventListener('click', () => showView(b.dataset.view)));
+
+function measureComposer() {
+  const h = $('#composer').offsetHeight;
+  if (h) document.documentElement.style.setProperty('--composer-h', `${h}px`);
+}
+window.addEventListener('resize', measureComposer);
 
 // ---------------------------------------------------------------- chat
 const chat = $('#chat');
@@ -30,22 +69,31 @@ function renderMessage(m) {
   }
   if (m.at && m.role !== 'sys') html += `<time>${new Date(m.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time>`;
   div.innerHTML = html;
-  return div;
+  if (m.role !== 'bot') return div;
+  const row = document.createElement('div');
+  row.className = 'bot-row';
+  row.innerHTML = avatarHTML(30);
+  row.appendChild(div);
+  return row;
 }
 
 function renderChat() {
   chat.innerHTML = '';
   if (!state.history.length) {
-    const name = state.settings.name ? ` ${esc(state.settings.name)}` : '';
-    chat.innerHTML = `<div class="welcome"><h1>Hi${name}, I’m Baymax 👋</h1>
-      <p>Your personal assistant. Tap the mic and tell me what you need: tasks, reminders, notes, emails, or one of your routines.</p>
-      ${voiceSupported.input || !voiceSupported.ready ? '' : `<p><strong>Voice input isn’t available here.</strong> ${voiceSupported.engine === 'claude' ? 'It works in Chrome on a computer or Android phone.' : 'Use Chrome, Edge or Safari.'} You can type below.</p>`}</div>`;
+    const name = state.settings.name ? ` ${esc(state.settings.name.split(' ')[0])}` : '';
+    chat.innerHTML = `<div class="welcome"><div class="face">${avatarHTML(96, 'full')}</div>
+      <h1>Hi${name}, I’m Baymax</h1>
+      <p>Your personal assistant. Tap the mic and tell me what you need: tasks, reminders, spends, bills, notes or habits.</p>
+      ${voiceSupported.input || !voiceSupported.ready ? '' : `<p><strong>Voice input isn’t available in this browser.</strong> ${voiceSupported.engine === 'claude' ? 'It works in Chrome on a computer or Android phone.' : 'Use Safari on iPhone or Chrome on Android.'} You can type below.</p>`}</div>`;
   }
   state.history.slice(-60).forEach((m) => chat.appendChild(renderMessage(m)));
-  scrollChat();
+  scrollChat(false);
 }
 
-function scrollChat() { requestAnimationFrame(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })); }
+function scrollChat(smooth = true) {
+  if (currentView !== 'chat') return;
+  requestAnimationFrame(() => window.scrollTo({ top: document.body.scrollHeight, behavior: smooth ? 'smooth' : 'auto' }));
+}
 
 function addMsg(role, text, extra = {}) {
   if (!state.history.length) chat.innerHTML = '';
@@ -69,26 +117,50 @@ async function respond(result) {
 }
 
 const SUGGESTIONS = [
-  'What’s my day?', 'Add task send FCL quote tomorrow at 11', 'Remind me to call the bank in 30 minutes',
-  'Set a timer for 5 minutes', 'Note: client prefers WhatsApp', 'What are my tasks?', 'Help',
+  'What’s my day?', 'How am I doing this month?', 'Spent 450 on lunch', 'What’s due this week?',
+  'Add task call Ravi tomorrow at 4', 'Remind me to stretch in 30 minutes', 'Show my invoices', 'Help',
 ];
 function renderSuggestions() {
-  const routineChips = state.routines.filter((r) => r.enabled).slice(0, 3).map((r) => `Run ${r.name}`);
-  $('#suggestions').innerHTML = [...SUGGESTIONS.slice(0, 2), ...routineChips, ...SUGGESTIONS.slice(2)]
+  const routineChips = state.routines.filter((r) => r.enabled).slice(0, 2).map((r) => `Run ${r.name}`);
+  $('#suggestions').innerHTML = [...SUGGESTIONS.slice(0, 4), ...routineChips, ...SUGGESTIONS.slice(4)]
     .map((s) => `<button class="chip" type="button">${esc(s)}</button>`).join('');
 }
 $('#suggestions').addEventListener('click', (e) => {
   const b = e.target.closest('.chip');
-  if (b) handleInput(b.textContent);
+  if (b) { unlockSpeech(); handleInput(b.textContent); }
 });
 
 // ---------------------------------------------------------------- command handling
+let pending = null; // a follow-up question Baymax asked: {field, action}
+
 const actionCtx = {
   ensureNotifications: () => { if ('Notification' in window && Notification.permission === 'default') requestNotifications().then(renderNotifState); },
   runRoutine: (r) => runRoutineWithUI(r),
+  setPending: (p) => { pending = p; },
 };
 
-let pendingReminder = null; // follow-up: "remind me to pay rent" → "when?" → "at 6pm"
+/** Turn the answer to a follow-up question into an action, or null if it doesn't fit. */
+function answerPending(p, text) {
+  switch (p.field) {
+    case 'task': {
+      const t = parseTime(text);
+      return { type: 'add_task', title: tidy(t ? t.rest : text), due: t ? t.date.toISOString() : null };
+    }
+    case 'note': return { type: 'add_note', text };
+    case 'habit': return { type: 'add_habit', name: text };
+    case 'spend': return parseFinanceCommand(/^\d|^₹|^rs/i.test(text) ? text : `spent ${text}`, { fin: state.finance }) ||
+      parseFinanceCommand(`spent ${text}`, { fin: state.finance });
+    case 'amount': {
+      const amount = parseAmount(text);
+      return amount > 0 ? { ...p.action, amount, needsAmount: false } : null;
+    }
+    case 'time': {
+      const t = parseTime(text);
+      return t ? { type: 'remind', title: p.action.title, due: t.date.toISOString() } : null;
+    }
+    default: return null;
+  }
+}
 
 async function handleInput(raw) {
   const text = String(raw || '').trim();
@@ -96,32 +168,35 @@ async function handleInput(raw) {
   stopSpeaking();
   addMsg('user', text);
 
-  // Follow-up answer for a reminder that was missing its time
-  if (pendingReminder) {
-    const t = parseTime(text);
-    const title = pendingReminder;
-    pendingReminder = null;
-    if (t) return respond(await execute({ type: 'remind', title, due: t.date.toISOString() }, actionCtx));
+  if (pending) {
+    const p = pending;
+    pending = null;
+    const isCancel = /^(cancel|never ?mind|stop|forget it)$/i.test(text);
+    if (isCancel) return respond({ reply: 'Okay, cancelled.' });
+    const answer = answerPending(p, text);
+    if (answer) return respond(await execute(answer, actionCtx));
   }
 
-  const action = parseCommand(text, { routines: state.routines });
+  const action = parseCommand(text, { routines: state.routines, fin: state.finance });
 
   if (action.type === 'unknown' && (state.settings.ai || builtInAI())) {
+    document.body.classList.add('thinking');
     setStatus('Thinking…', true);
     try {
       const ai = await askAI(text);
-      setStatus('');
       if (ai.reply) await respond({ reply: ai.reply });
       for (const a of ai.actions) await respond(await execute(a, actionCtx));
       if (!ai.reply && !ai.actions.length) await respond({ reply: 'Sorry, I’m not sure how to help with that.' });
     } catch (err) {
+      await respond({ reply: `AI mode is unavailable (${err.message}). Say “help” to see what I can do.` });
+    } finally {
+      document.body.classList.remove('thinking');
       setStatus('');
-      await respond({ reply: `AI mode is unavailable (${err.message}). Say “help” to see built-in commands.` });
     }
     return;
   }
 
-  if (action.type === 'remind' && action.needsTime) pendingReminder = action.title;
+  if (action.type === 'remind' && action.needsTime) pending = { field: 'time', action };
   if (action.type === 'stop') stopSpeaking();
   await respond(await execute(action, actionCtx));
 }
@@ -132,10 +207,7 @@ async function runRoutineWithUI(r) {
   routineRunning = true;
   addMsg('sys', `▶ Running “${r.name}”`);
   try {
-    await runRoutine(r, {
-      execute: (a) => execute(a, actionCtx),
-      onResult: (res) => respond(res),
-    });
+    await runRoutine(r, { execute: (a) => execute(a, actionCtx), onResult: (res) => respond(res) });
   } finally {
     routineRunning = false;
     addMsg('sys', `✓ “${r.name}” finished`);
@@ -144,6 +216,7 @@ async function runRoutineWithUI(r) {
 
 $('#text-form').addEventListener('submit', (e) => {
   e.preventDefault();
+  unlockSpeech();
   const input = $('#text-input');
   handleInput(input.value);
   input.value = '';
@@ -163,16 +236,17 @@ function setStatus(text, live = false) {
 function buildListener() {
   listener = createListener({
     lang: state.settings.lang,
-    onInterim: (t) => { interim.textContent = t; },
+    onInterim: (t) => { interim.textContent = t; measureComposer(); },
     onFinal: (t) => { interim.textContent = ''; handleInput(t); },
     onState: (st) => {
       const on = st === 'listening';
       micBtn.classList.toggle('listening', on);
       micBtn.setAttribute('aria-pressed', on);
-      setStatus(on ? 'Listening…' : '', on);
+      document.body.classList.toggle('listening', on);
+      setStatus(on ? 'Listening… pause when you’re done' : '', on);
       if (!on) interim.textContent = '';
     },
-    onError: (msg) => { toast(msg); },
+    onError: (msg) => { toast(msg); addMsg('sys', msg); },
   });
 }
 
@@ -182,30 +256,37 @@ function enableMic() {
 }
 enableMic();
 if (voiceSupported.engine === 'claude') {
-  // Inside claude.ai the platform provides dictation and a voice; they resolve after load.
   initVoice().then(() => { enableMic(); if (!state.history.length) renderChat(); fillVoices(); });
 }
 
-micBtn.addEventListener('click', () => {
-  if (!listener) return;
+/** Must run synchronously inside a tap: browsers only grant the mic from a user gesture. */
+function toggleListening() {
+  if (!listener) { toast('Voice input isn’t available in this browser. You can type instead.'); return; }
+  unlockSpeech();
   stopSpeaking();
   if (listener.active) listener.stop();
   else listener.start(!!state.settings.continuous);
-});
-
-// Keyboard shortcut: hold-free toggle with Ctrl/Cmd + K
-document.addEventListener('keydown', (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); micBtn.click(); }
-});
-
-// ---------------------------------------------------------------- tabs
-function showView(name) {
-  $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${name}`));
-  $$('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.view === name));
-  try { localStorage.setItem('voice-assistant:tab', name); } catch { /* ignore */ }
-  if (name === 'assistant') scrollChat(); else window.scrollTo(0, 0);
 }
-$$('.tabs button').forEach((b) => b.addEventListener('click', () => showView(b.dataset.view)));
+micBtn.addEventListener('click', toggleListening);
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); if (currentView !== 'chat') showView('chat'); toggleListening(); }
+});
+
+// ---------------------------------------------------------------- home + money
+const homeEl = $('#view-home');
+const moneyEl = $('#view-money');
+function renderHomeView() { if (currentView === 'home') renderHome(homeEl); }
+function renderMoneyView() { if (currentView === 'money') renderMoney(moneyEl); }
+setToast((m) => toast(m));
+bindMoney(moneyEl, renderMoneyView);
+bindHome(homeEl, {
+  rerender: () => renderHome(homeEl),
+  onAsk: () => { showView('chat'); toggleListening(); },
+  onGo: (v) => showView(v),
+  onTaskDone: (id) => { updateTask(id, { done: true, doneAt: new Date().toISOString() }); toast('Done ✓'); },
+  onHabit: (id) => { const h = toggleHabit(id); if (h?.log[ymd(new Date())]) toast(`${h.name} ✓`); },
+  onMoneyAction: (t) => handleMoneyAction(t, () => renderHome(homeEl)),
+});
 
 // ---------------------------------------------------------------- tasks
 let taskFilter = 'open';
@@ -226,31 +307,25 @@ function renderTasks() {
   if (taskFilter === 'done') list = list.filter((t) => t.done).sort((a, b) => new Date(b.doneAt || 0) - new Date(a.doneAt || 0));
   else list.sort((a, b) => (a.due ? new Date(a.due) : Infinity) - (b.due ? new Date(b.due) : Infinity) || new Date(a.createdAt) - new Date(b.createdAt));
 
-  const ul = $('#task-list');
-  if (!list.length) {
-    ul.innerHTML = `<li class="empty" style="border:0;background:none;justify-content:center">${taskFilter === 'done' ? 'Nothing completed yet.' : 'All clear. Say “add task …” to create one.'}</li>`;
-  } else {
-    ul.innerHTML = list.map((t) => {
-      const overdue = !t.done && t.due && new Date(t.due) < now;
-      return `<li class="${t.done ? 'done' : ''}" data-id="${t.id}">
-        <input type="checkbox" ${t.done ? 'checked' : ''} aria-label="Done">
-        <div class="grow"><div class="title">${t.isTimer ? '⏱ ' : ''}${esc(t.title)}</div>
-          ${t.due ? `<div class="meta ${overdue ? 'overdue' : ''}">${overdue ? 'Overdue · ' : ''}${esc(formatDue(t.due))}</div>` : ''}</div>
-        <button class="del" aria-label="Delete">×</button></li>`;
-    }).join('');
-  }
-  const openCount = state.tasks.filter((t) => !t.done && !t.isTimer && t.due && new Date(t.due) <= endOfDay).length;
+  $('#task-list').innerHTML = list.length ? list.map((t) => {
+    const overdue = !t.done && t.due && new Date(t.due) < now;
+    return `<li class="row ${t.done ? 'done' : ''}" data-id="${t.id}">
+      <input type="checkbox" ${t.done ? 'checked' : ''} aria-label="Done">
+      <div class="grow"><div class="title">${t.isTimer ? '⏱ ' : ''}${esc(t.title)}</div>
+        ${t.due ? `<div class="meta ${overdue ? 'bad' : ''}">${overdue ? 'Overdue · ' : ''}${esc(formatDue(t.due))}</div>` : ''}</div>
+      <button class="del" aria-label="Delete">×</button></li>`;
+  }).join('') : `<li class="empty">${taskFilter === 'done' ? 'Nothing completed yet.' : 'All clear. Say “add task …” to create one.'}</li>`;
+
+  const due = state.tasks.filter((t) => !t.done && !t.isTimer && t.due && new Date(t.due) <= endOfDay).length;
   const badge = $('#task-badge');
-  badge.hidden = !openCount;
-  badge.textContent = openCount;
+  badge.hidden = !due;
+  badge.textContent = due;
 }
 
 $('#task-list').addEventListener('click', (e) => {
   const li = e.target.closest('li[data-id]');
   if (!li) return;
-  if (e.target.matches('input[type=checkbox]')) {
-    updateTask(li.dataset.id, { done: e.target.checked, doneAt: e.target.checked ? new Date().toISOString() : null });
-  }
+  if (e.target.matches('input[type=checkbox]')) updateTask(li.dataset.id, { done: e.target.checked, doneAt: e.target.checked ? new Date().toISOString() : null });
   if (e.target.closest('.del')) removeTask(li.dataset.id);
 });
 
@@ -266,15 +341,64 @@ $('#task-form').addEventListener('submit', (e) => {
   toast(t ? `Added, due ${formatDue(t.date)}` : 'Task added');
 });
 
+// ---------------------------------------------------------------- more: sub tabs
+$('#more-seg').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  $$('#more-seg button').forEach((x) => x.classList.toggle('on', x === b));
+  $$('#view-more .sub').forEach((s) => s.classList.toggle('on', s.id === `more-${b.dataset.sub}`));
+});
+
+// ---------------------------------------------------------------- habits
+function renderHabits() {
+  const now = new Date();
+  const days = Array.from({ length: 7 }, (_, i) => addDays(now, i - 6));
+  $('#habit-list').innerHTML = state.habits.length ? state.habits.map((h) => {
+    const today = !!h.log[ymd(now)];
+    const streak = habitStreak(h);
+    return `<div class="habit" data-id="${h.id}">
+      <div class="habit-top">
+        <div class="grow"><div class="title" style="font-weight:650">${esc(h.name)}</div>
+          <div class="meta muted" style="font-size:13px">${streak ? `🔥 ${streak}-day streak` : 'Start a streak today'}</div></div>
+        <button type="button" class="link" data-act="edit-habit">Edit</button>
+        <button type="button" class="check-btn ${today ? 'on' : ''}" data-act="toggle" data-day="${ymd(now)}" aria-label="Done today" aria-pressed="${today}">✓</button>
+      </div>
+      <div class="habit-days">${days.map((d) => `<button type="button" class="${h.log[ymd(d)] ? 'on' : ''}" data-act="toggle" data-day="${ymd(d)}" aria-label="${d.toDateString()}">
+        <span>${d.toLocaleDateString('en-IN', { weekday: 'short' }).slice(0, 2)}</span><span>${d.getDate()}</span></button>`).join('')}</div>
+    </div>`;
+  }).join('') : '<p class="empty">No habits yet. Add one above, or say “add habit meditate”.</p>';
+}
+$('#habit-list').addEventListener('click', (e) => {
+  const card = e.target.closest('.habit');
+  const t = e.target.closest('[data-act]');
+  if (!card || !t) return;
+  const h = state.habits.find((x) => x.id === card.dataset.id);
+  if (t.dataset.act === 'toggle') toggleHabit(h.id, t.dataset.day);
+  if (t.dataset.act === 'edit-habit') {
+    openSheet({
+      title: 'Edit habit', values: { name: h.name },
+      fields: [{ key: 'name', label: 'Habit', type: 'text', required: true }],
+      onSave: (v) => { h.name = v.name; save(); toast('Habit saved'); },
+      onDelete: () => { removeHabit(h.id); toast('Habit removed'); },
+    });
+  }
+});
+$('#habit-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const input = $('#habit-name');
+  if (input.value.trim()) { addHabit(input.value.trim()); toast('Habit added'); }
+  input.value = '';
+});
+
 // ---------------------------------------------------------------- notes
 function renderNotes() {
   const q = $('#note-search').value.trim().toLowerCase();
   const list = state.notes.filter((n) => !q || n.text.toLowerCase().includes(q));
   $('#note-list').innerHTML = list.length
-    ? list.map((n) => `<li data-id="${n.id}"><div class="grow"><div class="title">${esc(n.text)}</div>
+    ? list.map((n) => `<li class="row" data-id="${n.id}"><div class="grow"><div class="title">${esc(n.text)}</div>
         <div class="meta">${new Date(n.createdAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</div></div>
         <button class="del" aria-label="Delete">×</button></li>`).join('')
-    : `<li class="empty" style="border:0;background:none;justify-content:center">${q ? 'No matching notes.' : 'No notes yet. Say “note: …”.'}</li>`;
+    : `<li class="empty">${q ? 'No matching notes.' : 'No notes yet. Say “note: …”.'}</li>`;
 }
 $('#note-search').addEventListener('input', renderNotes);
 $('#note-list').addEventListener('click', (e) => {
@@ -290,51 +414,40 @@ $('#note-form').addEventListener('submit', (e) => {
 
 // ---------------------------------------------------------------- routines
 function renderRoutines() {
-  const el = $('#routine-list');
-  el.innerHTML = state.routines.map((r) => `
+  $('#routine-list').innerHTML = state.routines.map((r) => `
     <div class="routine ${r.enabled ? '' : 'off'}" data-id="${r.id}">
       <h4>${esc(r.name)}</h4>
       <div class="tags">
-        ${r.trigger?.type === 'time' ? `<span class="tag time">⏰ ${esc(nextRunText(r))}</span>` : ''}
-        ${(r.phrases || []).map((p) => `<span class="tag">🎙 “${esc(p)}”</span>`).join('')}
+        ${r.trigger?.type === 'time' ? `<span class="pill warn">⏰ ${esc(nextRunText(r))}</span>` : ''}
+        ${(r.phrases || []).map((p) => `<span class="pill neutral">🎙 “${esc(p)}”</span>`).join('')}
       </div>
       <ol>${(r.actions || []).map((a) => `<li>${esc(describeAction(a))}</li>`).join('')}</ol>
-      <div class="btn-row">
-        <button class="btn small primary" data-act="run">▶ Run</button>
-        <button class="btn small" data-act="edit">Edit</button>
-      </div>
+      <div class="btn-row"><button class="btn small primary" data-act="run">▶ Run</button><button class="btn small" data-act="edit">Edit</button></div>
     </div>`).join('') || '<p class="empty">No routines yet.</p>';
-
   $('#activity').innerHTML = state.log.slice(0, 15).map((l) =>
-    `<li>${esc(l.text)} · ${new Date(l.at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</li>`).join('') ||
-    '<li>No activity yet.</li>';
+    `<li class="row">${esc(l.text)} · ${new Date(l.at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</li>`).join('') || '<li class="row">No activity yet.</li>';
 }
-
 $('#routine-list').addEventListener('click', (e) => {
   const card = e.target.closest('.routine');
   const btn = e.target.closest('button');
   if (!card || !btn) return;
   const r = state.routines.find((x) => x.id === card.dataset.id);
-  if (btn.dataset.act === 'run') { showView('assistant'); runRoutineWithUI(r); }
+  if (btn.dataset.act === 'run') { showView('chat'); runRoutineWithUI(r); }
   if (btn.dataset.act === 'edit') openRoutineEditor(r);
 });
 $('#new-routine').addEventListener('click', () => openRoutineEditor(null));
 
-// Routine editor
 const dialog = $('#routine-dialog');
 const form = $('#routine-form');
 let draft = null;
-
 $('#action-type').innerHTML = Object.entries(ACTION_TYPES).map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join('');
-$('#days').innerHTML = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-  .map((d, i) => `<label><input type="checkbox" name="day" value="${i}"> ${d}</label>`).join('');
+$('#days').innerHTML = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => `<label><input type="checkbox" name="day" value="${i}"> ${d}</label>`).join('');
 
 function fieldValue(a, f) {
   const v = a[f.key];
   if (f.type === 'minutes' || f.type === 'minutes-as-seconds') return v ? Math.round(v / 60 * 10) / 10 : '';
   return v ?? '';
 }
-
 function renderActionEditor() {
   $('#action-list').innerHTML = draft.actions.map((a, i) => {
     const def = ACTION_TYPES[a.type] || { label: a.type, fields: [] };
@@ -344,7 +457,7 @@ function renderActionEditor() {
       if (f.type === 'textarea') return `<label>${esc(f.label)}<textarea rows="2" ${attrs}>${val}</textarea></label>`;
       if (f.type === 'select') return `<label>${esc(f.label)}<select ${attrs}>${f.options.map((o) => `<option ${String(a[f.key] || f.options[0]) === o ? 'selected' : ''}>${o}</option>`).join('')}</select></label>`;
       const type = f.type === 'url' ? 'url' : (f.type === 'number' || f.type.startsWith('minutes')) ? 'number' : 'text';
-      return `<label>${esc(f.label)}<input type="${type}" ${type === 'number' ? 'min="0" step="any"' : ''} value="${val}" ${attrs}></label>`;
+      return `<label>${esc(f.label)}<input type="${type}" ${type === 'number' ? 'inputmode="decimal" min="0" step="any"' : ''} value="${val}" ${attrs}></label>`;
     }).join('');
     return `<li><div class="ahead">${esc(def.label)}<span class="spacer"></span>
       <button type="button" data-move="-1" data-i="${i}" aria-label="Move up">↑</button>
@@ -352,7 +465,6 @@ function renderActionEditor() {
       <button type="button" data-remove="${i}" aria-label="Remove">✕</button></div>${fields}</li>`;
   }).join('') || '<li class="hint">No steps yet. Add one below.</li>';
 }
-
 $('#action-list').addEventListener('input', (e) => {
   const el = e.target;
   if (!el.dataset.key) return;
@@ -380,10 +492,10 @@ $('#add-action').addEventListener('click', () => {
   if (type === 'remind') a.dueIn = 1800;
   if (type === 'webhook') a.method = 'POST';
   if (type === 'list_tasks') a.filter = 'open';
+  if (type === 'list_dues') a.range = 'week';
   draft.actions.push(a);
   renderActionEditor();
 });
-
 function openRoutineEditor(r) {
   draft = r ? structuredClone(r) : { id: uid(), name: '', phrases: [], enabled: true, trigger: { type: 'voice' }, actions: [{ type: 'speak', text: '' }] };
   delete draft._firedStamp;
@@ -399,7 +511,6 @@ function openRoutineEditor(r) {
   renderActionEditor();
   dialog.showModal();
 }
-
 form.addEventListener('submit', (e) => {
   if (e.submitter?.value !== 'save') return;
   if (!fe(form, 'name').value.trim()) { e.preventDefault(); fe(form, 'name').focus(); return; }
@@ -416,18 +527,16 @@ form.addEventListener('submit', (e) => {
 $('#delete-routine').addEventListener('click', (e) => {
   if (confirmTap(e.currentTarget)) { removeRoutine(draft.id); dialog.close(); }
 });
+dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.close(); });
 
 // ---------------------------------------------------------------- settings
 const sform = $('#settings-form');
-
 function fillVoices() {
   const sel = $('#voice-select');
   const voices = getVoices();
-  sel.innerHTML = '<option value="">System default</option>' +
-    voices.map((v) => `<option value="${esc(v.name)}">${esc(v.name)} (${esc(v.lang)})</option>`).join('');
+  sel.innerHTML = '<option value="">System default</option>' + voices.map((v) => `<option value="${esc(v.name)}">${esc(v.name)} (${esc(v.lang)})</option>`).join('');
   sel.value = state.settings.voiceName || '';
 }
-
 function renderSettings() {
   const s = state.settings;
   fe(sform, 'name').value = s.name; fe(sform, 'speak').checked = s.speak; fe(sform, 'continuous').checked = s.continuous;
@@ -437,8 +546,8 @@ function renderSettings() {
   renderNotifState();
 }
 if (voiceSupported.engine === 'browser' && typeof speechSynthesis !== 'undefined') speechSynthesis.addEventListener?.('voiceschanged', fillVoices);
-
-sform.addEventListener('change', () => {
+sform.addEventListener('change', (e) => {
+  if (e.target.type === 'file') return;
   const s = state.settings;
   s.name = fe(sform, 'name').value.trim(); s.speak = fe(sform, 'speak').checked; s.continuous = fe(sform, 'continuous').checked;
   s.voiceName = fe(sform, 'voiceName').value; s.rate = parseFloat(fe(sform, 'rate').value);
@@ -448,12 +557,41 @@ sform.addEventListener('change', () => {
   toast('Settings saved');
 });
 
+// Custom picture: resized to 256px and kept in this device's storage only.
+$('#avatar-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const url = URL.createObjectURL(file);
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const c = document.createElement('canvas');
+    const size = 256;
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    const scale = Math.max(size / img.width, size / img.height);
+    const w = img.width * scale, h = img.height * scale;
+    ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+    URL.revokeObjectURL(url);
+    state.settings.avatarImage = c.toDataURL('image/png');
+    save();
+    renderAvatars(); renderChat();
+    toast('Picture updated');
+  } catch { toast('Couldn’t read that picture. Try a PNG or JPG.'); }
+});
+$('#avatar-reset').addEventListener('click', () => {
+  delete state.settings.avatarImage;
+  save();
+  renderAvatars(); renderChat();
+  toast('Using the default picture');
+});
+
 function renderNotifState() {
   const el = $('#notif-state');
   const btn = $('#notif-btn');
-  if (!('Notification' in window)) { el.textContent = 'This browser does not support notifications. Reminders will still chime and speak while the app is open.'; btn.hidden = true; return; }
+  if (!('Notification' in window)) { el.textContent = 'This browser can’t show notifications. On iPhone, add Baymax to your Home Screen first. Reminders still chime and speak while the app is open.'; btn.hidden = true; return; }
   const p = Notification.permission;
-  el.textContent = p === 'granted' ? 'Notifications are on.' : p === 'denied' ? 'Notifications are blocked. Enable them in your browser’s site settings.' : 'Allow notifications so reminders reach you even when this tab is in the background.';
+  el.textContent = p === 'granted' ? 'Notifications are on.' : p === 'denied' ? 'Notifications are blocked. Turn them on in your browser’s site settings.' : 'Turn on notifications so reminders and payment alerts reach you.';
   btn.hidden = p !== 'default';
 }
 $('#notif-btn').addEventListener('click', async () => { await requestNotifications(); renderNotifState(); });
@@ -462,29 +600,22 @@ $('#export-btn').addEventListener('click', () => {
   const blob = new Blob([exportData()], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `assistant-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `baymax-backup-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $('#import-file').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
-  try { importData(await file.text()); toast('Backup restored'); renderAll(); }
-  catch (err) { toast(`Import failed: ${err.message}`); }
+  try { importData(await file.text()); toast('Backup restored'); renderAll(); } catch (err) { toast(`Import failed: ${err.message}`); }
   e.target.value = '';
 });
 $('#wipe-btn').addEventListener('click', (e) => {
   if (confirmTap(e.currentTarget, 'Tap again to erase everything')) { wipe(); renderAll(); toast('All data erased'); }
 });
 
-// ---------------------------------------------------------------- two-tap confirm
-// Works everywhere, including embedded views where window.confirm() is unavailable.
 function confirmTap(btn, prompt = 'Tap again to confirm') {
-  if (btn.dataset.armed === '1') {
-    btn.dataset.armed = '';
-    btn.textContent = btn.dataset.label;
-    return true;
-  }
+  if (btn.dataset.armed === '1') { btn.dataset.armed = ''; btn.textContent = btn.dataset.label; return true; }
   btn.dataset.label = btn.textContent;
   btn.dataset.armed = '1';
   btn.textContent = prompt;
@@ -492,7 +623,6 @@ function confirmTap(btn, prompt = 'Tap again to confirm') {
   return false;
 }
 
-// ---------------------------------------------------------------- toast
 let toastTimer;
 function toast(msg) {
   const t = $('#toast');
@@ -502,12 +632,26 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 3200);
 }
 
-// ---------------------------------------------------------------- boot
-function renderAll() { renderChat(); renderSuggestions(); renderTasks(); renderNotes(); renderRoutines(); renderSettings(); }
+// ---------------------------------------------------------------- badges + boot
+function renderBadges() {
+  const n = overdueItems(state.finance).length;
+  const b = $('#money-badge');
+  b.hidden = !n;
+  b.textContent = n;
+}
+function renderAll() {
+  renderAvatars(); renderChat(); renderSuggestions(); renderTasks(); renderNotes(); renderRoutines(); renderHabits(); renderSettings(); renderBadges();
+  renderHomeView(); renderMoneyView();
+}
+subscribe(() => { renderTasks(); renderNotes(); renderRoutines(); renderHabits(); renderSuggestions(); renderBadges(); renderHomeView(); renderMoneyView(); });
 
-subscribe(() => { renderTasks(); renderNotes(); renderRoutines(); renderSuggestions(); });
+initSheet();
 renderAll();
-try { const tab = localStorage.getItem('voice-assistant:tab'); if (tab && $(`#view-${tab}`)) showView(tab); } catch { /* ignore */ }
+let startView = (location.hash || '').replace('#', '');
+if (!startView) { try { startView = localStorage.getItem('voice-assistant:tab') || 'home'; } catch { startView = 'home'; } }
+if (startView === 'assistant') startView = 'chat';
+showView(startView, { scroll: false });
+window.addEventListener('hashchange', () => showView(location.hash.replace('#', '')));
 
 startScheduler({
   onReminder: async (t) => {
@@ -518,9 +662,12 @@ startScheduler({
     addMsg('bot', title);
     await say(t.isTimer ? `Your ${t.title} is done.` : `Reminder: ${t.title}`);
   },
-  onRoutine: (r) => {
-    notify('Routine', `Running ${r.name}`);
-    runRoutineWithUI(r);
+  onRoutine: (r) => { notify('Routine', `Running ${r.name}`); runRoutineWithUI(r); },
+  onDues: (items) => {
+    save();
+    const lines = items.map((d) => `${KIND_LABEL[d.kind]} ${d.name} · ${inr(d.amount)} · ${d.date < new Date(new Date().setHours(0, 0, 0, 0)) ? 'overdue' : d.date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`);
+    notify(items.length === 1 ? 'Payment due' : `${items.length} payments due`, lines.join('\n'));
+    addMsg('bot', `💳 Payment reminder: ${items.length === 1 ? 'this is' : 'these are'} coming up or overdue.`, { items: lines });
   },
 });
 
@@ -529,7 +676,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 }
 
 // Some free hosts pin a badge to the bottom of the screen (Netlify adds #nl-badge-frame).
-// Keep the tab bar and input box above it instead of letting it cover them.
+// Make the tab bar tall enough to sit the badge inside it, so it never covers a button.
 function watchHostBadge() {
   const apply = () => {
     const badge = document.getElementById('nl-badge-frame');
@@ -537,6 +684,7 @@ function watchHostBadge() {
     const visible = box && box.height > 0 && getComputedStyle(badge).display !== 'none' && box.top < window.innerHeight;
     const h = visible ? Math.ceil(window.innerHeight - box.top) : 0;
     document.documentElement.style.setProperty('--badge-h', `${h}px`);
+    measureComposer();
   };
   const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(apply) : null;
   new MutationObserver(() => {
@@ -549,6 +697,6 @@ function watchHostBadge() {
 }
 watchHostBadge();
 
-// Allow deep links like ?q=add%20task%20buy%20milk (handy for phone shortcuts / widgets)
+// Deep links like ?q=what's%20my%20day (phone shortcuts / widgets)
 const q = new URLSearchParams(location.search).get('q');
-if (q) { history.replaceState(null, '', location.pathname); handleInput(q); }
+if (q) { history.replaceState(null, '', location.pathname); showView('chat'); handleInput(q); }

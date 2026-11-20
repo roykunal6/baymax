@@ -5,17 +5,32 @@ A personal assistant you talk to. It runs in the browser, can be installed on yo
 and needs no account. See [PLAN.md](PLAN.md) for the design and roadmap.
 
 ## What it does
-- **Voice in, voice out:** tap the mic (or press Ctrl/⌘ + K) and speak. Replies are read aloud.
+- **Home dashboard:** Day, Week and Month views of your tasks, payments, money and habits.
+- **Voice in, voice out:** tap the mic and speak. Baymax replies out loud, and asks a follow-up question when a command is incomplete.
+- **Money:** log spends by voice (“spent 450 on lunch with HDFC card”), track credit cards, EMIs, SIPs,
+  bills and invoices (e.g. Thestral), get reminders before due dates, and warnings when you’re overspending:
+  pace vs budget, outflow vs income, savings rate, EMI load, card limits, overdue bills and invoices.
 - **Tasks & reminders:** “add task send FCL quote tomorrow at 11”, “remind me to call the bank in 30 minutes”.
-- **Timers, notes, email drafts, web:** “set a timer for 5 minutes”, “note: …”, “email ravi@x.com about invoice saying …”, “open gmail”.
-- **Daily briefing:** “what’s my day?”
-- **Routines (automation):** chain actions (speak, add task, reminder, timer, open site, compose email,
-  call a Zapier/Make/n8n webhook, wait…) and trigger them by a voice phrase, a daily time, or a tap.
-  Three starter routines are included. Edit them in the **Routines** tab.
-- **AI mode (optional):** anything the built-in parser doesn’t understand goes to Claude, which turns it
-  into the same actions. Example: “nudge me before lunch to ring the bank”.
+- **Habits:** daily check-offs with streaks (“add habit meditate”, “done meditate”).
+- **Routines (automation):** chain steps and trigger them by a phrase, a daily time, or a tap.
+- **Notes, timers, email drafts, web search.**
+- **AI mode (optional, needs PHP hosting):** free-form commands go to Claude through `api/assistant.php`.
 
-Say **“help”** in the app for the full list.
+Say **“help”** in the app for example commands.
+
+### Money commands
+| Say | What happens |
+|---|---|
+| “spent 2.5k on groceries with HDFC card” | Logs a spend (category guessed, card matched) |
+| “how am I doing this month” | Budget pace, savings, alerts |
+| “what’s due this week” / “… this month” | Upcoming and overdue payments |
+| “add EMI car loan 18500 on 10th for 24 months” | Monthly EMI with end date |
+| “add SIP 5000 Axis Bluechip on 7th” | Monthly SIP reminder |
+| “add bill electricity 2400 due on 5th” | Monthly bill |
+| “add Thestral invoice 45000 due next Friday” | Invoice to receive |
+| “Thestral invoice T-12 paid” / “received 45000 from Thestral” | Marks an invoice paid |
+| “paid car loan EMI” / “paid HDFC card bill” | Marks this month’s payment done |
+| “set budget to 40k” / “my salary is 1.5 lakh” | Monthly numbers |
 
 ## Run it
 It is static HTML/JS, so any web server works. Voice input needs **HTTPS or localhost**.
@@ -35,6 +50,7 @@ hear replies, but has no speech recognition.
 browser while signed in to claude.ai. Voice input works in Chrome on Android; on iPhone you type
 commands. Inside claude.ai, AI mode works without any server setup.
 Rebuild that page with `node tools/build-artifact.mjs <out.html>`.
+Regenerate the app icons from the avatar with `node tools/make-icons.mjs`.
 
 **Full app (installable, voice on iPhone too, notifications):** upload these files to any HTTPS
 website you own, open it in Safari (iPhone) or Chrome (Android), then Share → **Add to Home Screen**
