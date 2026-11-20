@@ -206,6 +206,27 @@
     </form>
   </dialog>
 
+  <!-- Statement import -->
+  <dialog id="import-dialog" class="sheet">
+    <form method="dialog" id="import-form">
+      <div class="sheet-grip" aria-hidden="true"></div>
+      <h2>Import a statement</h2>
+      <div id="import-step1" class="form-grid">
+        <p class="hint" style="margin:0">Download your statement from your bank or card website as <b>Excel, CSV or PDF</b>, then choose it here. Excel or CSV works best.</p>
+        <label>Statement file<input type="file" id="import-file-input" accept=".csv,.xls,.xlsx,.pdf,text/csv,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required></label>
+        <label>This statement is for<select id="import-source"></select></label>
+        <label id="import-pass-wrap" hidden>PDF password<input type="password" id="import-pass" autocomplete="off" placeholder="Often your date of birth or customer ID"></label>
+      </div>
+      <div id="import-step2" hidden></div>
+      <p class="alert bad" id="import-error" hidden></p>
+      <div class="btn-row end">
+        <span class="spacer"></span>
+        <button value="cancel" class="btn" formnovalidate>Cancel</button>
+        <button type="button" class="btn primary" id="import-next">Read statement</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Routine editor -->
   <dialog id="routine-dialog" class="sheet">
     <form method="dialog" id="routine-form" class="routine-form">

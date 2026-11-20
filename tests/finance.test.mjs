@@ -93,6 +93,9 @@ test('finance commands', () => {
   assert.equal(p('spent 2.5k on groceries yesterday').amount, 2500);
   assert.equal(p('paid 1200 for petrol via upi').method, 'upi');
   assert.equal(p('500 on uber').category, 'Travel');
+  assert.deepEqual([p('spent 320 on uber on 12th').note, p('spent 320 on uber on 12th').date], ['uber', '2026-11-12']);
+  assert.equal(p('spent 900 on dinner on 25th').date, '2026-10-25'); // 25th hasn't come yet this month
+  assert.equal(p('spent 900 on dinner on 2 Nov').date, '2026-11-02');
   assert.deepEqual(p('paid 2400 for electricity'), { type: 'mark_paid', query: 'Electricity' });
 
   let r = p('add EMI car loan 18500 on 10th for 24 months');

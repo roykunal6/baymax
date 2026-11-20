@@ -16,6 +16,8 @@ export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&a
 const shortDate = (d) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 let toast = () => {};
 export function setToast(fn) { toast = fn; }
+const importer = { open: () => {} };
+export function setImporter(fn) { importer.open = fn; }
 
 // ---------------------------------------------------------------- shared bits
 export function methodOptions() {
@@ -258,7 +260,7 @@ function spends() {
       <div class="btn-row"><button class="btn small" data-act="month" data-d="-1" aria-label="Previous month">‹</button>
       <b>${ref.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</b>
       <button class="btn small" data-act="month" data-d="1" aria-label="Next month" ${spendMonth >= 0 ? 'disabled' : ''}>›</button></div>
-      <button class="btn primary small" data-act="add-spend">＋ Spend</button>
+      <div class="btn-row"><button class="btn small" data-act="import-statement">Import statement</button><button class="btn primary small" data-act="add-spend">＋ Spend</button></div>
     </div>
     <div class="chips">${filters.map(([k, l]) => `<button type="button" class="chip ${spendFilter === k ? 'on' : ''}" data-act="filter" data-f="${esc(k)}">${esc(l)}</button>`).join('')}</div>
     <div class="card"><div class="card-head"><h3>Total</h3><b class="num" style="font-size:20px">${inr(total)}</b></div>
@@ -383,6 +385,7 @@ export function handleMoneyAction(t, rerender = () => {}) {
     case 'add-due': return dueForm();
     case 'add-invoice': return invoiceForm();
     case 'add-card': return cardForm();
+    case 'import-statement': return importer.open();
     case 'edit-spend': return spendForm(fin().spends.find((x) => x.id === id));
     case 'edit-ob': return dueForm(fin().obligations.find((x) => x.id === id));
     case 'edit-inv': return invoiceForm(fin().invoices.find((x) => x.id === id));

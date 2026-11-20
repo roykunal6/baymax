@@ -406,6 +406,18 @@ export function parseFinanceCommand(text, { fin = emptyFinance(), now = new Date
     }
     let date = ymd(now);
     if (/\byesterday\b/i.test(rest)) { date = ymd(addDays(now, -1)); rest = rest.replace(/\s*\byesterday\b/i, ''); }
+    // "on 12th" / "on the 3rd" / "on 12 Nov": a day this month (or last month if that's still ahead).
+    const onDay = rest.match(/\s+on\s+(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?(?:\s+([A-Za-z]{3,9}))?\s*$/i);
+    if (onDay) {
+      const day = +onDay[1];
+      const mon = onDay[2] ? ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(onDay[2].slice(0, 3).toLowerCase()) : -1;
+      if (day >= 1 && day <= 31 && (!onDay[2] || mon >= 0)) {
+        let d = new Date(now.getFullYear(), mon >= 0 ? mon : now.getMonth(), day);
+        if (d > now) d = mon >= 0 ? new Date(d.getFullYear() - 1, d.getMonth(), day) : new Date(now.getFullYear(), now.getMonth() - 1, day);
+        date = ymd(d);
+        rest = rest.slice(0, onDay.index);
+      }
+    }
     rest = rest.replace(/\s*\btoday\b/i, '');
     const note = tidy(rest);
     const ob = fin.obligations.find((o) => note.toLowerCase().includes(o.name.toLowerCase()) || o.name.toLowerCase().includes(note.toLowerCase()));

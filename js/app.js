@@ -14,7 +14,8 @@ import { createListener, speak, stopSpeaking, chime, getVoices, voiceSupported, 
 import { askAI, builtInAI } from './ai.js';
 import { parseAmount, parseFinanceCommand, overdueItems, inr, ymd, addDays, KIND_LABEL } from './finance.js';
 import { renderHome, bindHome } from './dashboard.js';
-import { renderMoney, bindMoney, handleMoneyAction, setToast } from './money.js';
+import { renderMoney, bindMoney, handleMoneyAction, setToast, setImporter } from './money.js';
+import { initImport } from './importui.js';
 import { initSheet, openSheet } from './sheet.js';
 import { avatarSVG } from './avatar.js';
 import { lock, changePassword } from './auth.js';
@@ -283,6 +284,7 @@ const moneyEl = $('#view-money');
 function renderHomeView() { if (currentView === 'home') renderHome(homeEl); }
 function renderMoneyView() { if (currentView === 'money') renderMoney(moneyEl); }
 setToast((m) => toast(m));
+setImporter(initImport((m) => toast(m)));
 bindMoney(moneyEl, renderMoneyView);
 bindHome(homeEl, {
   rerender: () => renderHome(homeEl),

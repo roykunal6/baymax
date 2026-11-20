@@ -26,7 +26,7 @@ const SELF_TRANSFER = /\b(self|own account|to your .*account|sweep|fd booking|fi
  * @param {Date} now
  * @returns {{ spends: Array, credits: Array, paid: Array<{ref, id, key}>, skipped: Array, messages: string[] }}
  */
-export function planBankItems(fin, items, now = new Date()) {
+export function planBankItems(fin, items, now = new Date(), { statement = false } = {}) {
   const out = { spends: [], credits: [], paid: [], skipped: [], messages: [] };
   const existingIds = new Set([...fin.spends.map((x) => x.id), ...(fin.credits || []).map((x) => x.id)]);
   const claimed = new Set(); // dues already matched in this batch
@@ -49,7 +49,9 @@ export function planBankItems(fin, items, now = new Date()) {
       const inv = fin.invoices.find((i) => !i.paidAt && (i.direction || 'in') === 'in' && near(i.amount, t.amount));
       if (inv) { out.paid.push({ ref: 'invoice', id: inv.id, key: 'once' }); out.messages.push(`Invoice ${inv.party} ${inv.number || ''} marked received.`); }
       const refund = /refund|revers|cashback/i.test(t.text || '');
-      out.credits.push({ id: sid, amount: t.amount, from: t.merchant || t.bank || 'Bank', kind: refund ? 'refund' : 'income', date: t.date, method: card ? card.id : t.channel === 'upi' ? 'upi' : 'bank', source: 'email' });
+      const dupCredit = statement && (fin.credits || []).find((x) => near(x.amount, t.amount, 0.01) && Math.abs(daysBetween(parseDay(x.date), d)) <= 1);
+      if (dupCredit) { out.skipped.push({ t, why: 'already recorded from your bank alerts' }); continue; }
+      out.credits.push({ id: sid, amount: t.amount, from: t.merchant || t.bank || 'Bank', kind: refund ? 'refund' : 'income', date: t.date, method: card ? card.id : t.channel === 'upi' ? 'upi' : 'bank', source: statement ? 'statement' : 'email' });
       continue;
     }
 
@@ -69,19 +71,20 @@ export function planBankItems(fin, items, now = new Date()) {
     if (due) {
       claimed.add(`${due.id}:${due.key}`);
       out.paid.push({ ref: 'obligation', id: due.id, key: due.key });
-      out.messages.push(`${due.name} (${due.kind.toUpperCase()}) marked paid from your bank alert.`);
+      out.messages.push(`${due.name} (${due.kind.toUpperCase()}) marked paid (${t.amount} on ${t.date}).`);
       continue;
     }
 
     // Probably logged by hand already: same amount within a day.
-    const dup = fin.spends.find((x) => near(x.amount, t.amount, 0.01) && Math.abs(daysBetween(parseDay(x.date), d)) <= 1 && x.source !== 'email');
+    // From a statement, alert-logged spends count as duplicates too.
+    const dup = fin.spends.find((x) => near(x.amount, t.amount, 0.01) && Math.abs(daysBetween(parseDay(x.date), d)) <= 1 && (statement || x.source !== 'email'));
     if (dup) { out.skipped.push({ t, why: `looks like “${dup.note || dup.category}” you already logged` }); continue; }
 
     const label = t.merchant || (t.channel === 'atm' ? 'ATM withdrawal' : `${t.bank || 'Bank'} ${t.channel}`);
     out.spends.push({
       id: sid, amount: t.amount, note: label, category: t.channel === 'atm' ? 'Other' : guessCategory(`${t.merchant} ${t.text}`),
       method: card ? card.id : t.channel === 'upi' ? 'upi' : /card/.test(t.channel) ? 'bank' : 'bank',
-      date: t.date || ymd(now), source: 'email',
+      date: t.date || ymd(now), source: statement ? 'statement' : 'email',
     });
   }
   return out;
