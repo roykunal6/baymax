@@ -104,3 +104,16 @@ test('follow-ups, habits and money routing', () => {
   assert.equal(p('add task pay rent tomorrow').type, 'add_task');
   assert.equal(p("what's due this week").type, 'list_dues');
 });
+
+test('email voice commands', () => {
+  assert.deepEqual(p('check my email'), { type: 'mail_check' });
+  assert.deepEqual(p('any new emails?'), { type: 'mail_check' });
+  assert.deepEqual(p("what's in my inbox"), { type: 'mail_check' });
+  assert.deepEqual(p('any emails from Ravi'), { type: 'mail_search', q: 'ravi', from: true });
+  assert.deepEqual(p('search my email for invoice november'), { type: 'mail_search', q: 'invoice november' });
+  assert.deepEqual(p('read the latest email from Ravi'), { type: 'mail_read', who: 'ravi' });
+  assert.deepEqual(p('Reply to Ravi saying I will send it by Friday'), { type: 'mail_reply', who: 'Ravi', text: 'I will send it by Friday', all: false });
+  assert.deepEqual(p('reply all to the last email from Meera saying approved'), { type: 'mail_reply', who: 'Meera', text: 'approved', all: true });
+  assert.equal(p('email ravi@example.com about invoice saying please share').type, 'email');
+  assert.equal(p('read my notes').type, 'list_notes');
+});

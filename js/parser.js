@@ -85,6 +85,18 @@ export function parseCommand(input, ctx = {}) {
   if (/^(?:add|log|record|new)\s+(?:an?\s+)?(?:expense|spend|spending|payment)$/.test(lower)) return { type: 'ask', field: 'spend' };
   if (/^(?:add|new)\s+(?:a\s+)?habit$/.test(lower)) return { type: 'ask', field: 'habit' };
 
+  // Email (Zoho Mail)
+  let mm;
+  if ((mm = lower.match(/^(?:read|open|show)\s+(?:me\s+)?(?:the\s+)?(?:latest|last|newest|recent)\s+(?:e-?mail|mail|message)\s+from\s+(.+)$/))) return { type: 'mail_read', who: mm[1].trim() };
+  if ((mm = text.match(/^reply\s+(all\s+)?to\s+(?:the\s+)?(?:(?:last|latest)\s+(?:e-?mail|mail)\s+from\s+)?(.+?)\s+(?:saying|that says|with|and say|telling (?:him|her|them))\s+(.+)$/i))) {
+    return { type: 'mail_reply', who: mm[2].trim(), text: mm[3].trim(), all: !!mm[1] };
+  }
+  if ((mm = lower.match(/^(?:search|find|look for)\s+(?:in\s+)?(?:my\s+)?(?:e-?mails?|mail|inbox)\s+(?:for\s+)?(.+)$/))) return { type: 'mail_search', q: mm[1].trim() };
+  if ((mm = lower.match(/^(?:show|any|find|check|get|list|are there any|do i have any)?\s*(?:new\s+|unread\s+)?(?:e-?mails?|mails?|messages)\s+from\s+(.+?)\??$/))) return { type: 'mail_search', q: mm[1].trim(), from: true };
+  if (/^(?:check|read|show|open|get)\s+(?:me\s+)?(?:my\s+)?(?:new\s+|unread\s+|latest\s+)?(?:e-?mails?|mail|inbox)\b|^(?:any|do i have any|are there any)\s+(?:new\s+|unread\s+)?(?:e-?mails?|mails?)\b|^what'?s in my inbox|^(?:my\s+)?(?:unread\s+)?e-?mails?\??$/.test(lower)) {
+    return { type: 'mail_check' };
+  }
+
   // Habits
   let hm = lower.match(/^(?:add|new|create|start|track)\s+(?:a\s+)?(?:new\s+)?habit\s+(?:to\s+|of\s+|called\s+)?(.+)$/);
   if (hm) return { type: 'add_habit', name: tidy(text.slice(text.length - hm[1].length)) };
@@ -178,6 +190,8 @@ export function parseCommand(input, ctx = {}) {
 }
 
 export const HELP_TEXT = [
+  'Mail: “check my email” · “any emails from Ravi” · “reply to Ravi saying I’ll send it Friday”',
+  'Invest: “how is my portfolio doing”',
   'Spend: “spent 450 on lunch with HDFC card” · “how much did I spend this week”',
   'Money: “how am I doing this month” · “what’s due this week”',
   'Dues: “add EMI car loan 18500 on 10th” · “add SIP 5000 Axis Bluechip on 7th” · “paid electricity bill”',

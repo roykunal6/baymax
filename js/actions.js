@@ -5,6 +5,7 @@ import { state, addTask, updateTask, removeTask, findTask, addNote, save, logAct
 import { formatDue, formatDuration } from './timeparse.js';
 import { HELP_TEXT } from './parser.js';
 import { executeMoney, briefingExtras } from './money-actions.js';
+import { executeMail } from './mail.js';
 
 export const ACTION_TYPES = {
   speak: { label: 'Say something', fields: [{ key: 'text', label: 'Text', type: 'text' }] },
@@ -81,6 +82,11 @@ function sortByDue(list) {
 
 export async function execute(action, ctx = {}) {
   const a = action || {};
+  if (a.type?.startsWith('mail_') || a.type === 'email') {
+    const mail = await executeMail(a);
+    if (mail) return mail;
+    if (a.type !== 'email') return { reply: 'Mail isn’t connected yet. Open the Mail tab to set it up.' };
+  }
   const money = await executeMoney(a, ctx);
   if (money) return money;
   switch (a.type) {

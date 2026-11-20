@@ -10,14 +10,14 @@ let current = null;
 function fieldHtml(f, value) {
   const id = `sf-${f.key}`;
   const v = value ?? f.default ?? '';
-  const req = f.required ? 'required' : '';
+  const req = (f.required ? 'required' : '') + (f.readonly ? ' readonly' : '');
   const ph = f.placeholder ? `placeholder="${esc(f.placeholder)}"` : '';
   if (f.type === 'check') return `<label class="check"><input type="checkbox" id="${id}" name="${f.key}" ${v ? 'checked' : ''}> ${esc(f.label)}</label>`;
   if (f.type === 'select') {
     const opts = (f.options || []).map((o) => (typeof o === 'string' ? { value: o, label: o } : o));
     return `<label for="${id}">${esc(f.label)}<select id="${id}" name="${f.key}" ${req}>${opts.map((o) => `<option value="${esc(o.value)}" ${String(o.value) === String(v) ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select></label>`;
   }
-  if (f.type === 'textarea') return `<label for="${id}">${esc(f.label)}<textarea id="${id}" name="${f.key}" rows="2" ${req} ${ph}>${esc(v)}</textarea></label>`;
+  if (f.type === 'textarea') return `<label for="${id}">${esc(f.label)}<textarea id="${id}" name="${f.key}" rows="${f.rows || 2}" ${req} ${ph}>${esc(v)}</textarea></label>`;
   const type = f.type === 'password' ? 'password' : f.type === 'date' ? 'date' : f.type === 'month' ? 'month' : f.type === 'day' || f.type === 'number' ? 'number' : 'text';
   const extra = f.type === 'amount' ? 'inputmode="decimal"' : f.type === 'day' ? 'inputmode="numeric" min="1" max="31"' : f.type === 'number' ? 'inputmode="decimal" min="0" step="any"' : '';
   return `<label for="${id}">${esc(f.label)}<input id="${id}" name="${f.key}" type="${type}" value="${esc(v)}" ${extra} ${req} ${ph} autocomplete="off"></label>`;
@@ -42,6 +42,7 @@ export function openSheet(opts) {
     } else html += fieldHtml(f, values[f.key]);
   }
   d.querySelector('#sheet-fields').innerHTML = html;
+  d.querySelector('#sheet-form button[value=save]').textContent = opts.saveLabel || 'Save';
   const del = d.querySelector('#sheet-delete');
   del.hidden = !opts.onDelete;
   del.textContent = 'Delete';

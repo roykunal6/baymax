@@ -16,6 +16,7 @@ import { parseAmount, parseFinanceCommand, overdueItems, inr, ymd, addDays, KIND
 import { renderHome, bindHome } from './dashboard.js';
 import { renderMoney, bindMoney, handleMoneyAction, setToast, setImporter } from './money.js';
 import { initImport } from './importui.js';
+import { initMail, showMail } from './mail.js';
 import { initSheet, openSheet } from './sheet.js';
 import { avatarSVG } from './avatar.js';
 import { lock, changePassword } from './auth.js';
@@ -48,14 +49,15 @@ function showView(name, { scroll = true } = {}) {
   if (!$(`#view-${name}`)) name = 'home';
   currentView = name;
   $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${name}`));
-  $$('.tabs button').forEach((b) => { const on = b.dataset.view === name; b.classList.toggle('on', on); b.setAttribute('aria-current', on ? 'page' : 'false'); });
+  $$('.tabs button, .more-btn').forEach((b) => { const on = b.dataset.view === name; b.classList.toggle('on', on); b.setAttribute('aria-current', on ? 'page' : 'false'); });
   document.body.classList.toggle('chat-open', name === 'chat');
   try { localStorage.setItem('voice-assistant:tab', name); } catch { /* ignore */ }
   if (name === 'chat') { measureComposer(); scrollChat(false); } else if (scroll) window.scrollTo(0, 0);
   if (name === 'home') renderHomeView();
   if (name === 'money') renderMoneyView();
+  if (name === 'mail') showMail();
 }
-$$('.tabs button').forEach((b) => b.addEventListener('click', () => showView(b.dataset.view)));
+$$('.tabs button, .more-btn').forEach((b) => b.addEventListener('click', () => showView(b.dataset.view)));
 
 function measureComposer() {
   const h = $('#composer').offsetHeight;
@@ -286,6 +288,7 @@ function renderHomeView() { if (currentView === 'home') renderHome(homeEl); }
 function renderMoneyView() { if (currentView === 'money') renderMoney(moneyEl); }
 setToast((m) => toast(m));
 setImporter(initImport((m) => toast(m)));
+initMail($('#view-mail'), (m) => toast(m));
 bindMoney(moneyEl, renderMoneyView);
 bindHome(homeEl, {
   rerender: () => renderHome(homeEl),

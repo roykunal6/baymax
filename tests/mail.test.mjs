@@ -1,0 +1,124 @@
+import { test, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+
+Object.assign(process.env, {
+  SUPABASE_URL: 'https://proj.supabase.co', SUPABASE_ANON_KEY: 'anon', SUPABASE_SERVICE_ROLE_KEY: 'svc', BAYMAX_USER_ID: 'u1',
+  ZOHO_CLIENT_ID: 'cid', ZOHO_CLIENT_SECRET: 'csec', ZOHO_DC: 'in',
+});
+const mod = await import('../netlify/functions/mail.mjs');
+const { default: handler, parseAddresses, htmlToText, toSearchKey, cleanRecipients, _resetCache } = mod;
+
+let calls, secrets;
+const ok = (data) => new Response(JSON.stringify({ status: { code: 200, description: 'success' }, data }), { status: 200 });
+beforeEach(() => {
+  calls = []; secrets = { zoho_refresh_token: 'rt-1' }; _resetCache();
+  globalThis.fetch = async (url, init = {}) => {
+    const u = new URL(String(url));
+    const method = init.method || 'GET';
+    const body = init.body instanceof URLSearchParams ? Object.fromEntries(init.body) : init.body ? JSON.parse(init.body) : null;
+    calls.push({ url: u.href, method, headers: init.headers || {}, body });
+    if (u.pathname === '/auth/v1/user') return init.headers.authorization === 'Bearer good' ? new Response(JSON.stringify({ id: 'u1', email: 'roy.kunal6@gmail.com' })) : new Response('{}', { status: 401 });
+    if (u.pathname === '/rest/v1/secrets') {
+      if (method === 'GET') { const n = u.searchParams.get('name').replace('eq.', ''); return new Response(JSON.stringify(secrets[n] ? [{ value: secrets[n] }] : [])); }
+      if (method === 'POST') { for (const r of body) secrets[r.name] = r.value; return new Response(null, { status: 201 }); }
+      if (method === 'DELETE') { delete secrets.zoho_refresh_token; return new Response(null, { status: 204 }); }
+    }
+    if (u.host === 'accounts.zoho.in' && u.pathname === '/oauth/v2/token') {
+      if (body.grant_type === 'authorization_code') return new Response(JSON.stringify(body.code === 'good-code' ? { access_token: 'at-new', refresh_token: 'rt-new', expires_in: 3600 } : { error: 'invalid_code' }));
+      return new Response(JSON.stringify({ access_token: 'at-1', expires_in: 3600 }));
+    }
+    if (u.host === 'mail.zoho.in') {
+      const p = u.pathname;
+      if (p === '/api/accounts') return ok([{ accountId: '111', primaryEmailAddress: 'kunal.roy@thestralmedia.com' }]);
+      if (p === '/api/accounts/111/folders') return ok([{ folderId: '9001', folderName: 'Inbox', folderType: 'Inbox', path: '/Inbox' }, { folderId: '9002', folderName: 'Sent', folderType: 'Sent', path: '/Sent' }]);
+      if (p === '/api/accounts/111/messages/view') return ok([{ messageId: '5', folderId: '9001', subject: 'Invoice', fromAddress: 'ravi@client.com', sender: 'Ravi', toAddress: '&quot;Kunal&quot;&lt;kunal.roy@thestralmedia.com&gt;', ccAddress: 'Not Provided', summary: 'Please find', receivedTime: '1763600000000', status: '0', flagid: 'flag_not_set', hasAttachment: '1' }]);
+      if (p.endsWith('/details')) return ok({ subject: 'Invoice', fromAddress: 'ravi@client.com', sender: 'Ravi', toAddress: '&quot;Kunal&quot;&lt;kunal.roy@thestralmedia.com&gt;, anil@client.com', ccAddress: 'meera@client.com', status: '0', receivedTime: '1763600000000' });
+      if (p.endsWith('/content')) return ok({ messageId: '5', content: '<div>Hi Kunal,<br>Invoice attached.</div><p>Thanks</p>' });
+      return ok({});
+    }
+    throw new Error('unexpected ' + u.href);
+  };
+});
+const call = (body, token = 'good') => handler(new Request('https://x/api/mail', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) }));
+const zohoCalls = () => calls.filter((c) => c.url.includes('mail.zoho.in'));
+
+test('helpers', () => {
+  assert.deepEqual(parseAddresses('&quot;Rebecca&quot;&lt;rebecca@zylker.com&gt;, Paula@Zylker.com'), [{ name: 'Rebecca', email: 'rebecca@zylker.com' }, { name: '', email: 'paula@zylker.com' }]);
+  assert.deepEqual(parseAddresses('Not Provided'), []);
+  assert.equal(htmlToText('<div>Hi<br>there</div><p>A &amp; B</p>'), 'Hi\nthere\nA & B');
+  assert.equal(toSearchKey('ravi@client.com'), 'sender:ravi@client.com');
+  assert.equal(toSearchKey('invoice november'), 'entire:invoice november');
+  assert.equal(toSearchKey('subject:Bill::has:attachment'), 'subject:Bill::has:attachment');
+  assert.throws(() => cleanRecipients('ravi'), /Not a valid email/);
+});
+
+test('refuses anyone who is not the signed-in Baymax user', async () => {
+  const r = await call({ action: 'list' }, 'stranger');
+  assert.equal(r.status, 401);
+  assert.equal(zohoCalls().length, 0);
+});
+
+test('list inbox uses the refreshed token and Zoho-oauthtoken header', async () => {
+  const r = await call({ action: 'list', folder: 'inbox', unread: true });
+  const { messages } = await r.json();
+  assert.equal(messages[0].from.email, 'ravi@client.com');
+  assert.equal(messages[0].unread, true);
+  assert.equal(messages[0].hasAttachment, true);
+  const view = zohoCalls().find((c) => c.url.includes('/messages/view'));
+  assert.equal(new URL(view.url).searchParams.get('folderId'), '9001');
+  assert.equal(new URL(view.url).searchParams.get('status'), 'unread');
+  assert.equal(view.headers.authorization, 'Zoho-oauthtoken at-1');
+});
+
+test('read returns text and marks as read', async () => {
+  const r = await (await call({ action: 'read', folderId: '9001', messageId: '5' })).json();
+  assert.equal(r.text, 'Hi Kunal,\nInvoice attached.\nThanks');
+  assert.ok(zohoCalls().some((c) => c.url.endsWith('/updatemessage') && c.body.mode === 'markAsRead'));
+});
+
+test('send, reply-all, forward, archive, delete', async () => {
+  await call({ action: 'send', to: 'ravi@client.com', subject: 'Hello', content: 'Hi' });
+  let c = zohoCalls().find((x) => x.method === 'POST' && x.url.endsWith('/accounts/111/messages'));
+  assert.deepEqual(c.body, { fromAddress: 'kunal.roy@thestralmedia.com', toAddress: 'ravi@client.com', subject: 'Hello', content: 'Hi', mailFormat: 'plaintext' });
+
+  calls.length = 0;
+  const rep = await (await call({ action: 'reply', folderId: '9001', messageId: '5', content: 'Thanks!', all: true })).json();
+  c = zohoCalls().find((x) => x.method === 'POST' && x.url.endsWith('/messages/5'));
+  assert.equal(c.body.action, 'reply');
+  assert.equal(c.body.subject, 'Re: Invoice');
+  assert.equal(rep.to, 'ravi@client.com,anil@client.com'); // never replies to yourself
+  assert.equal(rep.cc, 'meera@client.com');
+
+  calls.length = 0;
+  await call({ action: 'forward', folderId: '9001', messageId: '5', to: 'ca@firm.com', content: 'FYI' });
+  c = zohoCalls().find((x) => x.method === 'POST');
+  assert.equal(c.body.subject, 'Fwd: Invoice');
+  assert.match(c.body.content, /^FYI\n\n---------- Forwarded message ----------[\s\S]*Invoice attached/);
+
+  calls.length = 0;
+  await call({ action: 'update', mode: 'archiveMails', messageIds: ['5'] });
+  assert.deepEqual(zohoCalls().find((x) => x.method === 'PUT').body, { mode: 'archiveMails', messageId: ['5'] });
+
+  calls.length = 0;
+  await call({ action: 'delete', folderId: '9001', messageId: '5' });
+  c = zohoCalls().find((x) => x.method === 'DELETE');
+  assert.match(c.url, /\/folders\/9001\/messages\/5\?expunge=false$/);
+});
+
+test('connect exchanges the Self Client code and stores the refresh token server-side', async () => {
+  secrets = {};
+  let r = await call({ action: 'connect', code: 'expired' });
+  assert.equal(r.status, 400);
+  r = await (await call({ action: 'connect', code: 'good-code' })).json();
+  assert.deepEqual(r, { connected: true, email: 'kunal.roy@thestralmedia.com' });
+  assert.equal(secrets.zoho_refresh_token, 'rt-new');
+  const ex = calls.find((x) => x.body?.grant_type === 'authorization_code');
+  assert.deepEqual([ex.body.client_id, ex.body.client_secret], ['cid', 'csec']);
+});
+
+test('not connected → clear message', async () => {
+  secrets = {};
+  const r = await call({ action: 'list' });
+  assert.equal(r.status, 409);
+  assert.equal((await r.json()).code, 'not_connected');
+});

@@ -401,3 +401,25 @@ body.locked > :not(#lock):not(script):not(#nl-badge-frame) { display: none !impo
 .shake { animation: shake .35s; }
 @keyframes shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
 .lock-forgot { align-self: center; }
+
+/* ---------------------------------------------------------------- mail */
+.appbar-right { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.more-btn.on { background: var(--surface-2); }
+.mail-row { align-items: flex-start; }
+.mail-top { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.mail-top .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.mail-top .meta { flex: none; }
+.mail-subject { font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mail-summary { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.mail-row.unread .title, .mail-row.unread .mail-subject { font-weight: 750; }
+.mail-row .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--info); margin-right: 6px; vertical-align: 1px; }
+dialog.sheet.tall { height: calc(100dvh - env(safe-area-inset-top, 0px) - 16px); }
+#mail-body h2 { font-size: 20px; margin-bottom: 8px; overflow-wrap: anywhere; }
+.mail-meta { font-size: 14px; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.mail-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.mail-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15.5px; line-height: 1.55; padding: 12px 0; border-top: 1px solid var(--border); }
+.mail-text a { color: var(--info); }
+.mail-frame { width: 100%; height: 60vh; border: 1px solid var(--border); border-radius: 12px; background: #fff; margin-top: 8px; }
+.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 14.5px; }
+.steps a { color: var(--info); }
+.steps code { word-break: break-all; }
