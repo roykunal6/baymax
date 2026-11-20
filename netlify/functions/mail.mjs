@@ -1,7 +1,10 @@
 // POST /api/mail — Zoho Mail for Baymax (kunal.roy@thestralmedia.com).
 // Only the signed-in Baymax user can call it: every request must carry their Supabase access
 // token, which is checked with Supabase before anything touches the mailbox.
-// The Zoho refresh token lives in the Supabase `secrets` table (server-only), never in the app.
+// The Zoho refresh token lives in the Supabase `secrets` table (server-only), never in the app,
+// and it is stored encrypted with the user's mail key. The mail key is only on the user's unlocked
+// devices and is sent with each request (x-baymax-mail-key); the server uses it in memory only.
+// Without it, a copy of the database (or the server alone) cannot reach the mailbox.
 //
 // Env (Netlify → Site configuration → Environment variables):
 //   SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, BAYMAX_USER_ID
@@ -15,6 +18,12 @@ const env = () => process.env;
 const dc = () => env().ZOHO_DC || 'in';
 const MAIL = () => `https://mail.zoho.${dc()}/api`;
 const ACCOUNTS = () => `https://accounts.zoho.${dc()}`;
+
+import { createHash } from 'node:crypto';
+import { sealWithMailKey, openWithMailKey } from '../../js/vault.js';
+const keyHash = (k) => createHash('sha256').update(String(k)).digest('hex');
+// The mail key for the request being handled (each invocation handles one request at a time).
+let reqKey = null;
 
 // ---------------------------------------------------------------- helpers (exported for tests)
 export function decodeEntities(s) {
@@ -65,7 +74,13 @@ async function verifyUser(req) {
   const r = await fetch(`${env().SUPABASE_URL}/auth/v1/user`, { headers: { apikey: env().SUPABASE_ANON_KEY, authorization: auth } });
   if (!r.ok) return null;
   const user = await r.json();
-  return user?.id && user.id === env().BAYMAX_USER_ID ? user : null;
+  if (!user?.id || user.id !== env().BAYMAX_USER_ID) return null;
+  // Two-step sign-in: once turned on, a session that hasn't passed the code step can't use Mail.
+  if ((user.factors || []).some((f) => f.status === 'verified') && jwtClaims(auth).aal !== 'aal2') return { ...user, needsCode: true };
+  return user;
+}
+function jwtClaims(auth) {
+  try { return JSON.parse(Buffer.from(auth.split(/\s+/)[1].split('.')[1], 'base64url').toString()); } catch { return {}; }
 }
 
 const svc = () => ({ apikey: env().SUPABASE_SERVICE_ROLE_KEY, authorization: `Bearer ${env().SUPABASE_SERVICE_ROLE_KEY}`, 'content-type': 'application/json' });
@@ -87,18 +102,33 @@ async function deleteSecret(name) {
 }
 
 // ---------------------------------------------------------------- Zoho tokens + account
-const cache = { token: null, exp: 0, accountId: null, email: null, folders: null };
-export function _resetCache() { Object.assign(cache, { token: null, exp: 0, accountId: null, email: null, folders: null }); }
+const cache = { token: null, exp: 0, keyHash: null, accountId: null, email: null, folders: null };
+export function _resetCache() { Object.assign(cache, { token: null, exp: 0, keyHash: null, accountId: null, email: null, folders: null }); }
+
+/** The refresh token, decrypted with this request's mail key. A wrong key is refused. Old plain tokens are encrypted now. */
+async function refreshToken() {
+  const stored = await getSecret('zoho_refresh_token');
+  if (!stored) return null;
+  if (!String(stored).startsWith('enc1:')) {
+    await setSecret('zoho_refresh_token', await sealWithMailKey(reqKey, stored));
+    return stored;
+  }
+  try { return await openWithMailKey(reqKey, stored); } catch {
+    throw Object.assign(new Error('This device’s keys don’t match. Lock and unlock Baymax again.'), { status: 403, code: 'bad_mail_key' });
+  }
+}
 
 async function accessToken() {
-  if (cache.token && Date.now() < cache.exp - 60000) return cache.token;
-  const refresh = await getSecret('zoho_refresh_token');
+  // A token cached in this warm server instance is only reused for a request carrying the same mail key.
+  if (cache.token && cache.keyHash === keyHash(reqKey) && Date.now() < cache.exp - 60000) return cache.token;
+  const refresh = await refreshToken();
   if (!refresh) throw Object.assign(new Error('Zoho Mail isn’t connected yet.'), { status: 409, code: 'not_connected' });
   const body = new URLSearchParams({ refresh_token: refresh, grant_type: 'refresh_token', client_id: env().ZOHO_CLIENT_ID, client_secret: env().ZOHO_CLIENT_SECRET });
   const r = await fetch(`${ACCOUNTS()}/oauth/v2/token`, { method: 'POST', body });
   const data = await r.json().catch(() => ({}));
   if (!data.access_token) throw Object.assign(new Error('Zoho refused the saved connection. Reconnect Zoho Mail in Baymax.'), { status: 409, code: 'not_connected' });
   cache.token = data.access_token;
+  cache.keyHash = keyHash(reqKey);
   cache.exp = Date.now() + (Number(data.expires_in) || 3600) * 1000;
   return cache.token;
 }
@@ -162,7 +192,7 @@ function summarise(m) {
 // ---------------------------------------------------------------- actions
 const actions = {
   async status() {
-    const refresh = await getSecret('zoho_refresh_token');
+    const refresh = await refreshToken();
     if (!refresh) return { connected: false, dc: dc() };
     const a = await account();
     return { connected: true, email: a.email, dc: dc() };
@@ -178,16 +208,17 @@ const actions = {
       const why = data.error === 'invalid_code' ? 'That code has expired or was already used. Generate a new one (codes last a few minutes).' : `Zoho said: ${data.error || r.status}`;
       throw Object.assign(new Error(why), { status: 400 });
     }
-    await setSecret('zoho_refresh_token', data.refresh_token);
+    await setSecret('zoho_refresh_token', await sealWithMailKey(reqKey, data.refresh_token));
     _resetCache();
     cache.token = data.access_token;
+    cache.keyHash = keyHash(reqKey);
     cache.exp = Date.now() + (Number(data.expires_in) || 3600) * 1000;
     const a = await account();
     return { connected: true, email: a.email };
   },
 
   async disconnect() {
-    const refresh = await getSecret('zoho_refresh_token');
+    const refresh = await refreshToken().catch(() => null);
     if (refresh) await fetch(`${ACCOUNTS()}/oauth/v2/token/revoke?token=${encodeURIComponent(refresh)}`, { method: 'POST' }).catch(() => {});
     await deleteSecret('zoho_refresh_token');
     _resetCache();
@@ -287,7 +318,12 @@ export default async (req) => {
   if (!e.SUPABASE_URL || !e.SUPABASE_ANON_KEY || !e.SUPABASE_SERVICE_ROLE_KEY || !e.BAYMAX_USER_ID || !e.ZOHO_CLIENT_ID || !e.ZOHO_CLIENT_SECRET) {
     return json(503, { error: 'Zoho Mail isn’t set up on the server yet.', code: 'not_configured' });
   }
-  if (!(await verifyUser(req))) return json(401, { error: 'Please sign in to Baymax again.' });
+  const user = await verifyUser(req);
+  if (!user) return json(401, { error: 'Please sign in to Baymax again.' });
+  if (user.needsCode) return json(401, { error: 'Enter your two-step code to use Mail. Close and reopen Baymax.', code: 'mfa_required' });
+  const mk = req.headers.get('x-baymax-mail-key') || '';
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(mk)) return json(403, { error: 'Unlock Baymax to use Mail.', code: 'locked' });
+  reqKey = mk;
   let body;
   try { body = await req.json(); } catch { return json(400, { error: 'Send JSON' }); }
   const fn = actions[body?.action];
@@ -296,6 +332,8 @@ export default async (req) => {
     return json(200, await fn(body));
   } catch (err) {
     return json(err.status || 500, { error: err.message || 'Something went wrong', code: err.code });
+  } finally {
+    reqKey = null;
   }
 };
 

@@ -6,6 +6,8 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 import { isUnlocked, unlock, checkCredentials } from './auth.js';
 import { avatarSVG } from './avatar.js';
 import { cloud } from './cloud.js';
+import { openGate, forgetDevice } from './gate.js';
+import { loadKeys } from './keystore.js';
 
 const lockEl = document.getElementById('lock');
 const form = lockEl.querySelector('form');
@@ -46,16 +48,21 @@ async function bootCloud() {
   let recovering = false;
   client.auth.onAuthStateChange((event, session) => {
     if (event === 'PASSWORD_RECOVERY') { recovering = true; showNewPasswordForm(client); }
-    if (event === 'SIGNED_OUT') location.reload();
+    // Signed out here, or this session was ended from another device ("Sign out everywhere"):
+    // erase this device's copy of the data and keys.
+    if (event === 'SIGNED_OUT' && !cloud.signingOut) { cloud.signingOut = true; forgetDevice().finally(() => location.reload()); }
     if (session?.user) cloud.user = session.user;
   });
 
-  const { data } = await client.auth.getSession();
+  const { data, error: sessionError } = await client.auth.getSession();
   if (data.session && !recovering && !location.hash.includes('type=recovery')) {
     cloud.user = data.session.user;
+    await openGate(client, cloud.user);
     start();
     return;
   }
+  // No session, but keys still here: the session was ended elsewhere while Baymax was closed.
+  if (!data.session && !sessionError && (await loadKeys())) await forgetDevice();
 
   showLock();
   if (recovering) return;
@@ -84,6 +91,7 @@ async function bootCloud() {
       return;
     }
     cloud.user = res.user;
+    await openGate(client, cloud.user);
     start();
   });
 }
@@ -109,6 +117,7 @@ function showNewPasswordForm(client) {
     history.replaceState(null, '', location.pathname);
     const { data } = await client.auth.getSession();
     cloud.user = data.session?.user || null;
+    if (cloud.user) await openGate(client, cloud.user);
     start();
   }, { capture: true });
 }

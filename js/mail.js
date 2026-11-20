@@ -16,7 +16,7 @@ export async function mailApi(action, params = {}) {
   if (!token) throw Object.assign(new Error('Please sign in again.'), { code: 'signed_out' });
   let r;
   try {
-    r = await fetch('/api/mail', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ action, ...params }) });
+    r = await fetch('/api/mail', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, 'x-baymax-mail-key': cloud.keys?.mailKey || '' }, body: JSON.stringify({ action, ...params }) });
   } catch {
     throw Object.assign(new Error('No internet connection.'), { code: 'offline' });
   }
