@@ -114,7 +114,13 @@ export function resetSyncMeta() { try { localStorage.removeItem(META_KEY); } cat
  * @param {{client: any, userId: string, state: object, persist: () => void, onRemote: () => void, onStatus?: (s: string) => void}} o
  * persist: write state to local storage without triggering another sync.
  */
-export function createSync({ client, userId, state, persist, onRemote, onStatus = () => {}, metaKey = META_KEY }) {
+const PLAIN = { seal: async (v) => v, open: async (d) => d, encrypted: false };
+
+/**
+ * cipher: { seal(value) → stored data, open(stored) → value, encrypted: true } for end-to-end
+ * encryption. Without one, data is stored as-is.
+ */
+export function createSync({ client, userId, state, persist, onRemote, onStatus = () => {}, metaKey = META_KEY, cipher = PLAIN }) {
   const meta = loadMeta(metaKey);
   const saveMeta = (m) => { try { localStorage.setItem(metaKey, JSON.stringify(m)); } catch { /* ignore */ } };
   // First run on this device: everything local is new to the server.
@@ -147,12 +153,13 @@ export function createSync({ client, userId, state, persist, onRemote, onStatus 
     try {
       for (let i = 0; i < keys.length; i += 200) {
         const batch = keys.slice(i, i + 200);
-        const rows = batch.map((k) => {
+        const rows = await Promise.all(batch.map(async (k) => {
           const [coll, id] = splitKey(k);
           const d = meta.dirty[k];
           const data = d.deleted ? null : readKey(state, k);
-          return { user_id: userId, coll, id, data: data ? clean(data) : null, deleted: !!d.deleted || !data, updated_at: d.at };
-        });
+          const value = data ? (coll === 'doc' ? data : clean(data)) : null;
+          return { user_id: userId, coll, id, data: value ? await cipher.seal(value) : null, deleted: !!d.deleted || !data, updated_at: d.at };
+        }));
         const { error } = await client.from('records').upsert(rows, { onConflict: 'user_id,coll,id' });
         if (error) throw error;
         for (const k of batch) if (meta.dirty[k] && rows.find((r) => `${r.coll}:${r.id}` === k)?.updated_at === meta.dirty[k].at) delete meta.dirty[k];
@@ -170,8 +177,19 @@ export function createSync({ client, userId, state, persist, onRemote, onStatus 
   }
 
   /** Apply remote rows; local edits not yet uploaded win if they are newer. */
-  function applyRemoteRows(rows) {
+  async function applyRemoteRows(rawRows) {
     let changed = false;
+    const rows = [];
+    for (const r of rawRows) {
+      if (r.coll === 'doc' && r.id === 'keyring') continue; // managed by the vault, never synced as data
+      if (r.deleted || !r.data) { rows.push(r); continue; }
+      try {
+        const legacy = cipher.encrypted && !(typeof r.data === 'object' && 'e' in r.data);
+        rows.push({ ...r, data: await cipher.open(r.data), _legacy: legacy });
+      } catch (e) {
+        console.warn('Could not decrypt', r.coll, r.id, e);
+      }
+    }
     for (const row of rows) {
       const key = `${row.coll}:${row.id}`;
       const pending = meta.dirty[key];
@@ -184,7 +202,10 @@ export function createSync({ client, userId, state, persist, onRemote, onStatus 
         if (item) meta.snap[key] = hash(JSON.stringify(row.coll === 'doc' ? item : clean(item))); else delete meta.snap[key];
       }
       if (row.server_at && (!meta.cursor || row.server_at > meta.cursor)) meta.cursor = row.server_at;
+      // Stored readable from before encryption was turned on: upload again, encrypted.
+      if (row._legacy && !row.deleted && row.coll !== 'bankinbox') meta.dirty[key] = { at: new Date().toISOString() };
     }
+    if (rows.some((r) => r._legacy)) schedulePush(200);
     if (changed) {
       persist();
       onRemote();
@@ -206,7 +227,7 @@ export function createSync({ client, userId, state, persist, onRemote, onStatus 
         if (since) q = q.gt('server_at', since);
         const { data, error } = await q;
         if (error) throw error;
-        applyRemoteRows(data || []);
+        await applyRemoteRows(data || []);
         if (!data || data.length < 1000) break;
         from += 1000;
       }
@@ -222,17 +243,23 @@ export function createSync({ client, userId, state, persist, onRemote, onStatus 
   function subscribe() {
     channel = client.channel('records-' + userId)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'records', filter: `user_id=eq.${userId}` }, (p) => {
-        if (p.new && p.new.coll) applyRemoteRows([p.new]);
+        if (p.new && p.new.coll) applyRemoteRows([p.new]).catch((e) => console.warn(e));
       })
       .subscribe((status) => { if (status === 'SUBSCRIBED') pull(); });
   }
 
   async function start() {
+    if (cipher.encrypted && !meta.encrypted) {
+      // Encryption just turned on for this device: treat everything as new so it's uploaded encrypted.
+      meta.snap = {};
+      meta.encrypted = true;
+      saveMeta(meta);
+    }
     if (!meta.initialized) {
       // New device: if the cloud already has data and this device only has the starter examples,
       // drop the examples so they don't arrive as duplicates on the other devices.
       try {
-        const { count } = await client.from('records').select('id', { count: 'exact', head: true });
+        const { count } = await client.from('records').select('id', { count: 'exact', head: true }).neq('id', 'keyring');
         if (count > 0 && isPristine(state)) { state.routines = []; state.habits = []; persist(); }
         meta.initialized = true;
         saveMeta(meta);
