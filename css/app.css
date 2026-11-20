@@ -388,3 +388,15 @@ dialog.sheet h2 { font-size: 20px; }
 .avatar-setting .grow { flex: 1; min-width: 0; }
 .avatar-preview { width: 72px; height: 72px; border-radius: 22px; background: var(--primary); display: grid; place-items: center; overflow: hidden; flex: none; }
 .avatar-preview img, .avatar-preview svg { width: 72px; height: 72px; }
+
+/* ---------------------------------------------------------------- sign-in */
+body.locked > :not(#lock):not(script):not(#nl-badge-frame) { display: none !important; }
+.lock { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: calc(24px + env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-right, 0px)) calc(24px + env(safe-area-inset-bottom, 0px) + var(--badge-h)) max(20px, env(safe-area-inset-left, 0px)); }
+.lock-card { width: 100%; max-width: 380px; background: var(--surface); border-radius: 28px; padding: 26px 22px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 14px; }
+.lock-avatar { width: 120px; height: 120px; margin: -4px auto 0; border-radius: 32px; background: #141416; display: grid; place-items: center; }
+.lock-card h1 { font-size: 26px; text-align: center; letter-spacing: -.02em; }
+.lock-card > p.muted { text-align: center; margin: -8px 0 4px; }
+.lock-error { color: var(--bad); font-size: 14px; font-weight: 600; min-height: 1.2em; margin: -4px 0 0; }
+.lock-error:empty { min-height: 0; margin: 0; }
+.shake { animation: shake .35s; }
+@keyframes shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }

@@ -17,6 +17,7 @@ import { renderHome, bindHome } from './dashboard.js';
 import { renderMoney, bindMoney, handleMoneyAction, setToast } from './money.js';
 import { initSheet, openSheet } from './sheet.js';
 import { avatarSVG } from './avatar.js';
+import { lock, changePassword } from './auth.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -595,6 +596,31 @@ function renderNotifState() {
   btn.hidden = p !== 'default';
 }
 $('#notif-btn').addEventListener('click', async () => { await requestNotifications(); renderNotifState(); });
+
+$('#lock-btn').addEventListener('click', () => { lock(); location.reload(); });
+$('#change-pass-btn').addEventListener('click', () => {
+  let saving = false;
+  openSheet({
+    title: 'Change password',
+    fields: [
+      { key: 'current', label: 'Current password', type: 'password', required: true },
+      { key: 'next', label: 'New password (8+ characters)', type: 'password', required: true },
+      { key: 'confirm', label: 'Repeat new password', type: 'password', required: true },
+    ],
+    onSave: (v) => {
+      if (saving) return 'Saving…';
+      if (v.next !== v.confirm) return 'The new passwords don’t match.';
+      saving = true;
+      changePassword(v.current, v.next).then((err) => {
+        saving = false;
+        if (err) { const box = document.querySelector('#sheet .sheet-error'); if (box) box.textContent = err; else toast(err); return; }
+        document.getElementById('sheet').close();
+        toast('Password changed on this device');
+      });
+      return 'Checking…';
+    },
+  });
+});
 
 $('#export-btn').addEventListener('click', () => {
   const blob = new Blob([exportData()], { type: 'application/json' });

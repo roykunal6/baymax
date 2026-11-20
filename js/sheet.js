@@ -18,7 +18,7 @@ function fieldHtml(f, value) {
     return `<label for="${id}">${esc(f.label)}<select id="${id}" name="${f.key}" ${req}>${opts.map((o) => `<option value="${esc(o.value)}" ${String(o.value) === String(v) ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select></label>`;
   }
   if (f.type === 'textarea') return `<label for="${id}">${esc(f.label)}<textarea id="${id}" name="${f.key}" rows="2" ${req} ${ph}>${esc(v)}</textarea></label>`;
-  const type = f.type === 'date' ? 'date' : f.type === 'month' ? 'month' : f.type === 'day' || f.type === 'number' ? 'number' : 'text';
+  const type = f.type === 'password' ? 'password' : f.type === 'date' ? 'date' : f.type === 'month' ? 'month' : f.type === 'day' || f.type === 'number' ? 'number' : 'text';
   const extra = f.type === 'amount' ? 'inputmode="decimal"' : f.type === 'day' ? 'inputmode="numeric" min="1" max="31"' : f.type === 'number' ? 'inputmode="decimal" min="0" step="any"' : '';
   return `<label for="${id}">${esc(f.label)}<input id="${id}" name="${f.key}" type="${type}" value="${esc(v)}" ${extra} ${req} ${ph} autocomplete="off"></label>`;
 }
