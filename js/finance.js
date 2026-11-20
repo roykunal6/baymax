@@ -68,7 +68,10 @@ export function guessCategory(text) {
 
 // ---------------------------------------------------------------- data shapes
 export function emptyFinance() {
-  return { income: 0, budget: 0, categoryBudgets: {}, remindDays: 2, spends: [], cards: [], obligations: [], invoices: [], notified: {} };
+  return {
+    income: 0, budget: 0, categoryBudgets: {}, remindDays: 2, spends: [], cards: [], obligations: [], invoices: [], notified: {},
+    credits: [], holdings: [], bankInbox: [], zerodha: { lastUpload: null, history: [] },
+  };
 }
 
 export const KIND_LABEL = { emi: 'EMI', sip: 'SIP', bill: 'Bill', invoice: 'Invoice', card: 'Card bill' };

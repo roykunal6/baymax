@@ -4,6 +4,7 @@ import { emptyFinance, ymd, addDays, nextMonthlyDate, monthKey } from './finance
 
 const KEY = 'voice-assistant:v1';
 const listeners = new Set();
+const saveHooks = new Set();
 
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
@@ -86,9 +87,12 @@ export const state = load();
 export function save() {
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* ignore quota / private mode */ }
   listeners.forEach((fn) => fn(state));
+  saveHooks.forEach((fn) => { try { fn(state); } catch (e) { console.warn(e); } });
 }
 
 export function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+/** Called after every save (used by cloud sync to upload changes). */
+export function onSave(fn) { saveHooks.add(fn); return () => saveHooks.delete(fn); }
 
 // ---- Tasks ---------------------------------------------------------------
 export function addTask({ title, due = null, isTimer = false }) {

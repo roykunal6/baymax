@@ -29,6 +29,7 @@
       <label class="check"><input type="checkbox" name="remember" checked> Keep me signed in on this device for 30 days</label>
       <p class="lock-error" role="alert"></p>
       <button type="submit" class="btn primary block">Sign in</button>
+      <button type="button" class="link lock-forgot" hidden>Forgot password?</button>
     </form>
   </div>
 
@@ -140,8 +141,8 @@
           </fieldset>
         </form>
         <div class="card">
-          <h3>Sign-in</h3>
-          <p class="hint">Baymax asks for your email and password on each new device, and again after 30 days.</p>
+          <h3>Account &amp; sync</h3>
+          <p class="hint" id="sync-state">Baymax asks for your email and password on each new device.</p>
           <div class="btn-row">
             <button class="btn" id="change-pass-btn" type="button">Change password</button>
             <button class="btn" id="lock-btn" type="button">Sign out</button>
@@ -239,6 +240,7 @@
 
   <div class="toast" id="toast" role="status"></div>
 
+  <script src="vendor/supabase-2.117.2.js"></script>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

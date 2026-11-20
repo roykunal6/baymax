@@ -400,3 +400,4 @@ body.locked > :not(#lock):not(script):not(#nl-badge-frame) { display: none !impo
 .lock-error:empty { min-height: 0; margin: 0; }
 .shake { animation: shake .35s; }
 @keyframes shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+.lock-forgot { align-self: center; }

@@ -3,7 +3,7 @@
 import {
   state, subscribe, save, addTask, updateTask, removeTask, addNote, removeNote,
   upsertRoutine, removeRoutine, pushHistory, exportData, importData, wipe, uid,
-  addHabit, toggleHabit, removeHabit, habitStreak,
+  addHabit, toggleHabit, removeHabit, habitStreak, onSave,
 } from './store.js';
 import { parseCommand } from './parser.js';
 import { parseTime, formatDue, tidy } from './timeparse.js';
@@ -18,6 +18,8 @@ import { renderMoney, bindMoney, handleMoneyAction, setToast } from './money.js'
 import { initSheet, openSheet } from './sheet.js';
 import { avatarSVG } from './avatar.js';
 import { lock, changePassword } from './auth.js';
+import { cloud } from './cloud.js';
+import { createSync, resetSyncMeta } from './sync.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -597,7 +599,11 @@ function renderNotifState() {
 }
 $('#notif-btn').addEventListener('click', async () => { await requestNotifications(); renderNotifState(); });
 
-$('#lock-btn').addEventListener('click', () => { lock(); location.reload(); });
+$('#lock-btn').addEventListener('click', async () => {
+  if (cloud.client) { cloud.sync?.stop(); await cloud.client.auth.signOut(); }
+  lock();
+  location.reload();
+});
 $('#change-pass-btn').addEventListener('click', () => {
   let saving = false;
   openSheet({
@@ -611,7 +617,7 @@ $('#change-pass-btn').addEventListener('click', () => {
       if (saving) return 'Saving…';
       if (v.next !== v.confirm) return 'The new passwords don’t match.';
       saving = true;
-      changePassword(v.current, v.next).then((err) => {
+      changeAccountPassword(v.current, v.next).then((err) => {
         saving = false;
         if (err) { const box = document.querySelector('#sheet .sheet-error'); if (box) box.textContent = err; else toast(err); return; }
         document.getElementById('sheet').close();
@@ -636,7 +642,18 @@ $('#import-file').addEventListener('change', async (e) => {
   try { importData(await file.text()); toast('Backup restored'); renderAll(); } catch (err) { toast(`Import failed: ${err.message}`); }
   e.target.value = '';
 });
-$('#wipe-btn').addEventListener('click', (e) => {
+$('#wipe-btn').addEventListener('click', async (e) => {
+  if (cloud.client) {
+    // Signed in to the cloud: erase this device only and sign out. Cloud data and other devices stay intact.
+    if (!confirmTap(e.currentTarget, 'Tap again to erase this device')) return;
+    cloud.offSave?.();
+    cloud.sync?.stop();
+    wipe();
+    resetSyncMeta();
+    await cloud.client.auth.signOut();
+    location.reload();
+    return;
+  }
   if (confirmTap(e.currentTarget, 'Tap again to erase everything')) { wipe(); renderAll(); toast('All data erased'); }
 });
 
@@ -671,8 +688,48 @@ function renderAll() {
 }
 subscribe(() => { renderTasks(); renderNotes(); renderRoutines(); renderHabits(); renderSuggestions(); renderBadges(); renderHomeView(); renderMoneyView(); });
 
+/** Change password: on the Supabase account when signed in to the cloud, otherwise on this device. */
+async function changeAccountPassword(current, next) {
+  if (!cloud.client) return changePassword(current, next);
+  if (String(next).length < 8) return 'Use at least 8 characters.';
+  const check = await cloud.client.auth.signInWithPassword({ email: cloud.user.email, password: current });
+  if (check.error) return 'Your current password is wrong.';
+  const { error } = await cloud.client.auth.updateUser({ password: next });
+  return error ? error.message : null;
+}
+
+// ---------------------------------------------------------------- cloud sync
+const SYNC_TEXT = {
+  local: 'Your data is stored on this device only.',
+  syncing: 'Syncing…',
+  synced: 'All changes synced to your other devices.',
+  offline: 'Offline. Changes will sync when you’re back online.',
+};
+function renderSyncState() {
+  const el = $('#sync-state');
+  if (!el) return;
+  const wipeBtn = $('#wipe-btn');
+  if (cloud.client && wipeBtn && wipeBtn.dataset.armed !== '1') wipeBtn.textContent = 'Erase this device';
+  el.textContent = cloud.client ? `Signed in as ${cloud.user?.email || 'you'}. ${SYNC_TEXT[cloud.status] || ''}` : SYNC_TEXT.local;
+}
+function startCloudSync() {
+  if (!cloud.client || !cloud.user) return;
+  cloud.sync = createSync({
+    client: cloud.client,
+    userId: cloud.user.id,
+    state,
+    persist: save,
+    onRemote: () => { renderAll(); },
+    onStatus: (st) => { cloud.status = st; renderSyncState(); },
+  });
+  cloud.offSave = onSave(() => cloud.sync.noteLocalChange());
+  cloud.sync.start().catch((e) => console.warn('Sync failed to start', e));
+}
+
 initSheet();
 renderAll();
+renderSyncState();
+startCloudSync();
 let startView = (location.hash || '').replace('#', '');
 if (!startView) { try { startView = localStorage.getItem('voice-assistant:tab') || 'home'; } catch { startView = 'home'; } }
 if (startView === 'assistant') startView = 'chat';
