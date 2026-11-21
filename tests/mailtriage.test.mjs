@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { triageMessages, classify, freshText, isPersonMessage, hasReply } from '../js/mailtriage.js';
+import { triageMessages, classify, freshText, isPersonMessage, hasReply, firstName } from '../js/mailtriage.js';
 import { applyTriage } from '../js/mailtasks.js';
 
 const ME = 'kunal.roy@thestralmedia.com';
@@ -75,4 +75,29 @@ test('applyTriage: adds once, never re-adds a deleted task, ticks off replied on
   assert.equal(st.tasks[0].autoDone, 'replied');
   st.tasks = []; // deleted by you
   assert.equal(applyTriage(st, { items: [item] }, NOW).added.length, 0, 'deleted stays deleted');
+});
+
+test('lessons from a real inbox: shopping, system mail and role senders', () => {
+  for (const [email, subject, summary] of [
+    ['order-update@amazon.in', 'Delivered: “Lamp…”', ''],
+    ['shipment-tracking@amazon.in', 'Out for delivery: "Lamp…"', ''],
+    ['remit.noreply@lionresources.com', 'Remittance', ''],
+    ['lmg.alerts@landmarkgroup.co.in', 'New PO 145644', 'This is system generated mail kindly do not reply to this mail'],
+    ['tds@bdo.in', 'TDS Certificate', 'Please note that it is auto populated email, expect no response to your queries.'],
+    ['outreach@zohoanalytics.com', 'Introducing Zoho Analytics', ''],
+  ]) assert.equal(isPersonMessage(msg({ email, subject, summary }), ME), false, email);
+  assert.equal(classify({ subject: 'Docs', text: 'Please find attached the documents.' }), null, '"please find attached" is not a request');
+  assert.equal(classify({ subject: 'GST', text: 'We request you to kindly share a copy of the Credit Note.' }).kind, 'reply');
+  assert.equal(classify({ subject: 'BCL', text: 'Gentle reminder 5....... request you to kindly confirm the balance.' }).kind, 'followup');
+  assert.equal(firstName({ from: { email: 'sunil.kumar5@publicisresources.com' } }), 'Sunil');
+  assert.equal(firstName({ from: { email: 'partner@procol.in' } }), 'Procol');
+  assert.equal(firstName({ from: { name: 'Reco Helpdesk', email: 'reco.helpdesk@x.in' } }), 'Reco');
+});
+
+test('one task per conversation (newest email wins)', () => {
+  const a = msg({ subject: 'BCL', text: 'Gentle reminder 4. Please confirm the balance.', threadId: 'T', ago: 48 });
+  const b = msg({ subject: 'BCL', text: 'Gentle reminder 5. Please confirm the balance.', threadId: 'T', ago: 10 });
+  const r = triageMessages({ inbox: [b, a], sent: [], me: ME, now: NOW });
+  assert.equal(r.items.length, 1);
+  assert.equal(r.items[0].messageId, b.messageId);
 });
