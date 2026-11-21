@@ -22,6 +22,7 @@ import { avatarSVG } from './avatar.js';
 import { lock, changePassword } from './auth.js';
 import { cloud } from './cloud.js';
 import { createSync, resetSyncMeta } from './sync.js';
+import { cipherFor, signOut, renderSecurity } from './gate.js';
 import { planBankItems } from './bankfeed.js';
 import { uploadDue } from './zerodha.js';
 import { setPaid } from './store.js';
@@ -608,7 +609,7 @@ function renderNotifState() {
 $('#notif-btn').addEventListener('click', async () => { await requestNotifications(); renderNotifState(); });
 
 $('#lock-btn').addEventListener('click', async () => {
-  if (cloud.client) { cloud.sync?.stop(); await cloud.client.auth.signOut(); }
+  if (cloud.client) { await signOut({ reload: true }); return; }
   lock();
   location.reload();
 });
@@ -654,12 +655,7 @@ $('#wipe-btn').addEventListener('click', async (e) => {
   if (cloud.client) {
     // Signed in to the cloud: erase this device only and sign out. Cloud data and other devices stay intact.
     if (!confirmTap(e.currentTarget, 'Tap again to erase this device')) return;
-    cloud.offSave?.();
-    cloud.sync?.stop();
-    wipe();
-    resetSyncMeta();
-    await cloud.client.auth.signOut();
-    location.reload();
+    await signOut({ reload: true });
     return;
   }
   if (confirmTap(e.currentTarget, 'Tap again to erase everything')) { wipe(); renderAll(); toast('All data erased'); }
@@ -729,9 +725,11 @@ function startCloudSync() {
     persist: save,
     onRemote: () => { processBankInbox(); renderAll(); },
     onStatus: (st) => { cloud.status = st; renderSyncState(); },
+    cipher: cipherFor(cloud.keys),
   });
   cloud.offSave = onSave(() => cloud.sync.noteLocalChange());
   cloud.sync.start().then(processBankInbox).catch((e) => console.warn('Sync failed to start', e));
+  renderSecurity($('#security'), toast);
 }
 
 // ---------------------------------------------------------------- bank alerts → spends

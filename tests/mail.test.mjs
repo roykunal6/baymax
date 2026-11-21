@@ -7,17 +7,24 @@ Object.assign(process.env, {
 });
 const mod = await import('../netlify/functions/mail.mjs');
 const { default: handler, parseAddresses, htmlToText, toSearchKey, cleanRecipients, _resetCache } = mod;
+const { b64, randomBytes, sealWithMailKey, openWithMailKey } = await import('../js/vault.js');
+const MK = b64(randomBytes(32)), OTHER = b64(randomBytes(32));
 
 let calls, secrets;
 const ok = (data) => new Response(JSON.stringify({ status: { code: 200, description: 'success' }, data }), { status: 200 });
-beforeEach(() => {
-  calls = []; secrets = { zoho_refresh_token: 'rt-1' }; _resetCache();
+beforeEach(async () => {
+  calls = []; secrets = { zoho_refresh_token: await sealWithMailKey(MK, 'rt-1') }; _resetCache();
   globalThis.fetch = async (url, init = {}) => {
     const u = new URL(String(url));
     const method = init.method || 'GET';
     const body = init.body instanceof URLSearchParams ? Object.fromEntries(init.body) : init.body ? JSON.parse(init.body) : null;
     calls.push({ url: u.href, method, headers: init.headers || {}, body });
-    if (u.pathname === '/auth/v1/user') return init.headers.authorization === 'Bearer good' ? new Response(JSON.stringify({ id: 'u1', email: 'roy.kunal6@gmail.com' })) : new Response('{}', { status: 401 });
+    if (u.pathname === '/auth/v1/user') {
+      const t = init.headers.authorization;
+      if (t === 'Bearer good') return new Response(JSON.stringify({ id: 'u1', email: 'roy.kunal6@gmail.com' }));
+      if (t.startsWith('Bearer mfa.')) return new Response(JSON.stringify({ id: 'u1', factors: [{ status: 'verified' }] }));
+      return new Response('{}', { status: 401 });
+    }
     if (u.pathname === '/rest/v1/secrets') {
       if (method === 'GET') { const n = u.searchParams.get('name').replace('eq.', ''); return new Response(JSON.stringify(secrets[n] ? [{ value: secrets[n] }] : [])); }
       if (method === 'POST') { for (const r of body) secrets[r.name] = r.value; return new Response(null, { status: 201 }); }
@@ -39,7 +46,7 @@ beforeEach(() => {
     throw new Error('unexpected ' + u.href);
   };
 });
-const call = (body, token = 'good') => handler(new Request('https://x/api/mail', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) }));
+const call = async (body, token = 'good', key = MK) => { return handler(new Request('https://x/api/mail', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...(key ? { 'x-baymax-mail-key': key } : {}) }, body: JSON.stringify(body) })); };
 const zohoCalls = () => calls.filter((c) => c.url.includes('mail.zoho.in'));
 
 test('helpers', () => {
@@ -119,7 +126,8 @@ test('connect exchanges the Self Client code and stores the refresh token server
   assert.equal(r.status, 400);
   r = await (await call({ action: 'connect', code: 'good-code' })).json();
   assert.deepEqual(r, { connected: true, email: 'kunal.roy@thestralmedia.com' });
-  assert.equal(secrets.zoho_refresh_token, 'rt-new');
+  assert.match(secrets.zoho_refresh_token, /^enc1:/, 'stored encrypted');
+  assert.equal(await openWithMailKey(MK, secrets.zoho_refresh_token), 'rt-new');
   const ex = calls.find((x) => x.body?.grant_type === 'authorization_code');
   assert.deepEqual([ex.body.client_id, ex.body.client_secret], ['cid', 'csec']);
 });
@@ -129,4 +137,30 @@ test('not connected → clear message', async () => {
   const r = await call({ action: 'list' });
   assert.equal(r.status, 409);
   assert.equal((await r.json()).code, 'not_connected');
+});
+
+test('mail key: required, must match, plain tokens get encrypted, cached token not reused with a wrong key', async () => {
+  let r = await call({ action: 'list' }, 'good', null);
+  assert.equal(r.status, 403);
+  assert.equal((await r.json()).code, 'locked');
+  assert.equal(calls.filter((c) => c.url.includes('zoho')).length, 0);
+
+  assert.equal((await call({ action: 'list' })).status, 200); // warms the access-token cache
+  r = await call({ action: 'list' }, 'good', OTHER);
+  assert.equal(r.status, 403);
+  assert.equal((await r.json()).code, 'bad_mail_key');
+
+  secrets.zoho_refresh_token = 'rt-plain'; _resetCache();
+  assert.equal((await call({ action: 'status' })).status, 200);
+  assert.match(secrets.zoho_refresh_token, /^enc1:/);
+  assert.equal(await openWithMailKey(MK, secrets.zoho_refresh_token), 'rt-plain');
+});
+
+test('two-step on: an aal1 session is refused, aal2 is allowed', async () => {
+  const jwt = (aal) => `mfa.${Buffer.from(JSON.stringify({ aal })).toString('base64url')}.sig`;
+  let r = await call({ action: 'list' }, jwt('aal1'));
+  assert.equal(r.status, 401);
+  assert.equal((await r.json()).code, 'mfa_required');
+  r = await call({ action: 'list' }, jwt('aal2'));
+  assert.equal(r.status, 200);
 });

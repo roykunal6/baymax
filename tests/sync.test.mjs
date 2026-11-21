@@ -27,9 +27,9 @@ function fakeCloud() {
         select(_cols, opts) {
           const q = {
             _gt: null, _range: [0, 999],
-            order() { return q; }, range(a, b) { q._range = [a, b]; return q; }, gt(_c, v) { q._gt = v; return q; },
+            order() { return q; }, range(a, b) { q._range = [a, b]; return q; }, gt(_c, v) { q._gt = v; return q; }, neq(_c, v) { q._neq = v; return q; },
             then(res, rej) {
-              const all = [...rows.values()].filter((r) => !q._gt || r.server_at > q._gt).sort((a, b) => a.server_at.localeCompare(b.server_at));
+              const all = [...rows.values()].filter((r) => (!q._gt || r.server_at > q._gt) && (!q._neq || r.id !== q._neq)).sort((a, b) => a.server_at.localeCompare(b.server_at));
               const out = opts?.head ? { count: all.length, error: null } : { data: all.slice(q._range[0], q._range[1] + 1), error: null };
               return Promise.resolve(out).then(res, rej);
             },
@@ -125,4 +125,37 @@ test('offline edits upload when back online, and pull catches up missed changes'
   await a.sync.push();
   assert.equal(a.sync.pending(), 0);
   assert.ok(b.state.tasks.some((t) => t.title === 'Written offline'));
+});
+
+test('end-to-end encrypted sync: cloud holds only ciphertext, old plaintext is replaced', async () => {
+  const { createKeyring, unlockWithPassphrase, sealJSON, openJSON } = await import('../js/vault.js');
+  const cloud = fakeCloud();
+  // Before encryption: a readable row already in the cloud.
+  cloud.rows.set('notes:old', { user_id: 'u1', coll: 'notes', id: 'old', data: { id: 'old', text: 'readable before' }, deleted: false, updated_at: '2026-11-01T00:00:00.000Z', server_at: '2026-11-01T00:00:00.000Z' });
+  const { keyring, keys } = await createKeyring('mango river 47 window', { rounds: 1000 });
+  const cipherFor = (k) => ({ seal: (v) => sealJSON(k.dek, v), open: (d) => openJSON(k, d), encrypted: true });
+
+  const phoneState = blank();
+  phoneState.finance.spends.push({ id: 's9', amount: 45250, note: 'ICICI home loan', date: '2026-11-05' });
+  const phone = createSync({ client: cloud.client(), userId: 'u1', state: phoneState, persist: () => {}, onRemote: () => {}, metaKey: 'meta-enc-phone', cipher: cipherFor(keys) });
+  await phone.start();
+  await phone.push();
+  const stored = JSON.stringify([...cloud.rows.values()].map((r) => r.data));
+  assert.ok(!stored.includes('ICICI') && !stored.includes('45250') && !stored.includes('readable before'), 'no readable data left in the cloud');
+  assert.ok([...cloud.rows.values()].every((r) => r.deleted || r.data?.e === 1));
+  assert.ok(phoneState.notes.some((n) => n.text === 'readable before'), 'old note still on the phone, now encrypted in the cloud');
+
+  // Desktop unlocks with the passphrase and reads everything.
+  const { keys: deskKeys } = await unlockWithPassphrase(keyring, 'mango river 47 window');
+  const deskState = blank();
+  const desk = createSync({ client: cloud.client(), userId: 'u1', state: deskState, persist: () => {}, onRemote: () => {}, metaKey: 'meta-enc-desk', cipher: cipherFor(deskKeys) });
+  await desk.start();
+  assert.equal(deskState.finance.spends[0].note, 'ICICI home loan');
+
+  // Someone with the wrong key sees nothing usable (rows are skipped, not crashing).
+  const { keys: wrong } = await createKeyring('a totally different one', { rounds: 1000 });
+  const thief = blank();
+  const t = createSync({ client: cloud.client(), userId: 'u1', state: thief, persist: () => {}, onRemote: () => {}, metaKey: 'meta-enc-thief', cipher: cipherFor(wrong) });
+  await t.pull();
+  assert.equal(thief.finance.spends.length, 0);
 });

@@ -50,3 +50,16 @@ create table if not exists public.secrets (
   updated_at timestamptz not null default now()
 );
 alter table public.secrets enable row level security;
+
+-- Two-step sign-in, enforced by the database: once you have turned on an authenticator app,
+-- a session that hasn't passed the code step (aal1) can't read or change any record.
+create or replace function public.has_verified_mfa() returns boolean
+  language sql stable security definer set search_path = ''
+  as $$ select exists (select 1 from auth.mfa_factors where user_id = auth.uid() and status = 'verified') $$;
+revoke all on function public.has_verified_mfa() from public, anon;
+grant execute on function public.has_verified_mfa() to authenticated;
+
+drop policy if exists "two-step when turned on" on public.records;
+create policy "two-step when turned on" on public.records as restrictive for all to authenticated
+  using ((select auth.jwt() ->> 'aal') = 'aal2' or not (select public.has_verified_mfa()))
+  with check ((select auth.jwt() ->> 'aal') = 'aal2' or not (select public.has_verified_mfa()));
