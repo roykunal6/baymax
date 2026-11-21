@@ -21,6 +21,7 @@ const ACCOUNTS = () => `https://accounts.zoho.${dc()}`;
 
 import { createHash } from 'node:crypto';
 import { sealWithMailKey, openWithMailKey } from '../../js/vault.js';
+import { triageMessages, isPersonMessage } from '../../js/mailtriage.js';
 const keyHash = (k) => createHash('sha256').update(String(k)).digest('hex');
 // The mail key for the request being handled (each invocation handles one request at a time).
 let reqKey = null;
@@ -302,6 +303,24 @@ const actions = {
     if (mode === 'setFlag') body.flagid = ['info', 'important', 'followup', 'flag_not_set'].includes(flag) ? flag : 'important';
     await zoho(`/accounts/${accountId}/updatemessage`, { method: 'PUT', body });
     return { ok: true };
+  },
+
+  /** Emails that need something from you → task suggestions. Reads text without marking anything read.
+   *  skip: message ids already handled (their text isn't fetched again). */
+  async triage({ days = 14, skip = [] }) {
+    const { accountId, email } = await account();
+    const [inboxId, sentId] = await Promise.all([folderId('inbox'), folderId('sent')]);
+    const view = (fid) => zoho(`/accounts/${accountId}/messages/view`, { query: { folderId: fid, start: 1, limit: 100, status: 'all', sortorder: false } });
+    const [inRaw, sentRaw] = await Promise.all([view(inboxId), view(sentId)]);
+    const since = Date.now() - Math.min(Number(days) || 14, 60) * 864e5;
+    const inbox = (inRaw || []).map(summarise).filter((m) => m.time && m.time >= since);
+    const sent = (sentRaw || []).map(summarise);
+    const done = new Set((Array.isArray(skip) ? skip : []).map(String));
+    const toRead = inbox.filter((m) => !done.has(m.messageId) && isPersonMessage(m, email)).slice(0, 15);
+    await Promise.all(toRead.map(async (m) => {
+      try { m.text = htmlToText((await zoho(`/accounts/${accountId}/folders/${m.folderId}/messages/${m.messageId}/content`))?.content || '').slice(0, 6000); } catch { /* use the summary */ }
+    }));
+    return triageMessages({ inbox, sent, me: email, days });
   },
 
   /** Moves to Trash (Zoho keeps it there; nothing is permanently deleted). */

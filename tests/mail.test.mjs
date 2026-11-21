@@ -164,3 +164,14 @@ test('two-step on: an aal1 session is refused, aal2 is allowed', async () => {
   r = await call({ action: 'list' }, jwt('aal2'));
   assert.equal(r.status, 200);
 });
+
+test('triage reads emails without marking them read and returns task suggestions', async () => {
+  const realNow = Date.now;
+  Date.now = () => 1763600000000 + 86400000; // a day after the sample email
+  let r;
+  try { r = await (await call({ action: 'triage' })).json(); } finally { Date.now = realNow; }
+  assert.ok(Array.isArray(r.items) && Array.isArray(r.replied) && Array.isArray(r.examined));
+  assert.ok(calls.some((c) => /\/messages\/5\/content$/.test(c.url)), 'reads the text');
+  assert.ok(!calls.some((c) => c.method === 'PUT'), 'never marks as read');
+  assert.ok(calls.some((c) => c.url.includes('folderId=9002')), 'checks Sent for replies');
+});

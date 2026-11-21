@@ -435,3 +435,4 @@ dialog.secure .lock-card > p.muted { text-align: left; margin: -6px 0 2px; }
 .security-card h4 { margin: 16px 0 4px; font-size: 15px; }
 .security-card label:not(.check) { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .lock-card .link.lock-forgot { align-self: center; }
+.mail-src .link { padding: 0; font-size: inherit; }

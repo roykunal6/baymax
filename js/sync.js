@@ -27,6 +27,11 @@ export const DOCS = {
     set: (s, v) => { Object.assign(s.finance, v); },
   },
   profile: { get: (s) => ({ name: s.settings.name }), set: (s, v) => { if (v && 'name' in v) s.settings.name = v.name; } },
+  // Email → tasks: on/off, and emails already turned into tasks (merged, so no device re-adds a deleted one).
+  mailtriage: {
+    get: (s) => s.mailTriage || { on: true, seen: {} },
+    set: (s, v) => { s.mailTriage = { ...(s.mailTriage || {}), ...v, seen: { ...(s.mailTriage?.seen || {}), ...(v?.seen || {}) } }; },
+  },
 };
 
 // Fields that only matter on the device that set them.

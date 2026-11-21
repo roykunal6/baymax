@@ -23,6 +23,8 @@ import { lock, changePassword } from './auth.js';
 import { cloud } from './cloud.js';
 import { createSync, resetSyncMeta } from './sync.js';
 import { cipherFor, signOut, renderSecurity } from './gate.js';
+import { startMailTasks, checkMailForTasks, setMailTasksOn, lastMailCheck } from './mailtasks.js';
+import { openMessage } from './mail.js';
 import { planBankItems } from './bankfeed.js';
 import { uploadDue } from './zerodha.js';
 import { setPaid } from './store.js';
@@ -324,7 +326,8 @@ function renderTasks() {
     return `<li class="row ${t.done ? 'done' : ''}" data-id="${t.id}">
       <input type="checkbox" ${t.done ? 'checked' : ''} aria-label="Done">
       <div class="grow"><div class="title">${t.isTimer ? '⏱ ' : ''}${esc(t.title)}</div>
-        ${t.due ? `<div class="meta ${overdue ? 'bad' : ''}">${overdue ? 'Overdue · ' : ''}${esc(formatDue(t.due))}</div>` : ''}</div>
+        ${t.due ? `<div class="meta ${overdue ? 'bad' : ''}">${overdue ? 'Overdue · ' : ''}${esc(formatDue(t.due))}</div>` : ''}
+        ${t.source?.type === 'mail' ? `<div class="meta mail-src">✉️ ${esc(MAIL_KIND[t.source.kind] || 'Email')}${t.autoDone === 'replied' ? ' · you replied' : ''} · <button type="button" class="link open-mail">Open email</button></div>` : ''}</div>
       <button class="del" aria-label="Delete">×</button></li>`;
   }).join('') : `<li class="empty">${taskFilter === 'done' ? 'Nothing completed yet.' : 'All clear. Say “add task …” to create one.'}</li>`;
 
@@ -339,7 +342,34 @@ $('#task-list').addEventListener('click', (e) => {
   if (!li) return;
   if (e.target.matches('input[type=checkbox]')) updateTask(li.dataset.id, { done: e.target.checked, doneAt: e.target.checked ? new Date().toISOString() : null });
   if (e.target.closest('.del')) removeTask(li.dataset.id);
+  if (e.target.closest('.open-mail')) {
+    const t = state.tasks.find((x) => x.id === li.dataset.id);
+    if (t?.source) openMessage({ messageId: t.source.messageId, folderId: t.source.folderId, subject: t.source.subject });
+  }
 });
+const MAIL_KIND = { call: 'Call request', followup: 'They followed up', deadline: 'Deadline / reminder', reply: 'Awaiting your reply' };
+
+function renderMailTasksSetting() {
+  const box = $('#mailtasks');
+  if (!box) return;
+  if (!cloud.keys) { box.closest('.card').hidden = true; return; }
+  const on = state.mailTriage?.on !== false;
+  const t = lastMailCheck();
+  box.innerHTML = `
+    <label class="check"><input type="checkbox" id="mailtasks-on" ${on ? 'checked' : ''}> Turn emails into tasks automatically</label>
+    <p class="hint">Every 15 minutes while Baymax is open, it reads your Zoho inbox (last 14 days) and adds tasks for call requests, deadlines, people chasing you, and questions you haven’t answered within 4 hours. Newsletters and notifications are ignored. Reply tasks tick themselves off when you reply. Nothing is marked as read.</p>
+    <p class="hint">${t ? `Last checked ${new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.` : 'Not checked yet.'}</p>
+    <button class="btn" type="button" id="mailtasks-now">Check now</button>`;
+  $('#mailtasks-on').onchange = (e) => { setMailTasksOn(e.target.checked); toast(e.target.checked ? 'Email → tasks is on' : 'Email → tasks is off'); };
+  $('#mailtasks-now').onclick = async (e) => {
+    e.target.disabled = true; e.target.textContent = 'Checking…';
+    try {
+      const r = await checkMailForTasks({ force: true, announce: false });
+      toast(r?.added.length ? `Added ${r.added.length} task${r.added.length > 1 ? 's' : ''} from your email` : 'No new tasks in your email');
+    } catch (err) { toast(err.code === 'not_connected' ? 'Connect Zoho Mail in the Mail tab first' : err.message); }
+    renderMailTasksSetting();
+  };
+}
 
 $('#task-form').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -730,6 +760,8 @@ function startCloudSync() {
   cloud.offSave = onSave(() => cloud.sync.noteLocalChange());
   cloud.sync.start().then(processBankInbox).catch((e) => console.warn('Sync failed to start', e));
   renderSecurity($('#security'), toast);
+  startMailTasks(toast);
+  renderMailTasksSetting();
 }
 
 // ---------------------------------------------------------------- bank alerts → spends
