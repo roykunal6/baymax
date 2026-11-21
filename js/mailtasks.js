@@ -18,14 +18,14 @@ const setLast = (t) => { try { localStorage.setItem(LAST, String(t)); } catch { 
 export const lastMailCheck = () => last();
 
 function triageState() {
-  if (!state.mailTriage) state.mailTriage = { on: true, seen: {} };
+  if (!state.mailTriage) state.mailTriage = { on: false, seen: {} };
   if (!state.mailTriage.seen) state.mailTriage.seen = {};
   return state.mailTriage;
 }
 
 /** Apply a triage result to the task list. Pure enough to unit-test with a plain state object. */
 export function applyTriage(st, result, now = Date.now()) {
-  const tri = st.mailTriage || (st.mailTriage = { on: true, seen: {} });
+  const tri = st.mailTriage || (st.mailTriage = { on: false, seen: {} });
   const seen = tri.seen || (tri.seen = {});
   const added = [], completed = [];
   for (const it of result.items || []) {
@@ -83,6 +83,12 @@ export function startMailTasks(toastFn) {
   setTimeout(() => checkMailForTasks(), 4000);
   setInterval(() => { if (!document.hidden) checkMailForTasks(); }, 60 * 1000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkMailForTasks(); });
+}
+
+/** Dry run: what would be added from the inbox right now, without adding anything. */
+export async function previewMailTasks() {
+  const r = await mailApi('triage', { days: 14, skip: [] });
+  return { items: r.items || [], replied: r.replied || [], stats: r.stats || {} };
 }
 
 export function setMailTasksOn(on) {

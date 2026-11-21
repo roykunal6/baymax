@@ -64,7 +64,7 @@ function load() {
         settings: { ...DEFAULT_SETTINGS, ...(s.settings || {}) },
         finance: { ...emptyFinance(), ...(s.finance || {}) },
         habits: s.habits || defaultHabits(),
-        mailTriage: { on: true, seen: {}, ...(s.mailTriage || {}) },
+        mailTriage: { on: false, seen: {}, ...(s.mailTriage || {}) },
       };
     }
   } catch { /* storage blocked or corrupt: start fresh */ }
@@ -72,7 +72,7 @@ function load() {
 }
 
 function fresh() {
-  return { tasks: [], notes: [], routines: defaultRoutines(), history: [], log: [], settings: { ...DEFAULT_SETTINGS }, finance: emptyFinance(), habits: defaultHabits(), mailTriage: { on: true, seen: {} } };
+  return { tasks: [], notes: [], routines: defaultRoutines(), history: [], log: [], settings: { ...DEFAULT_SETTINGS }, finance: emptyFinance(), habits: defaultHabits(), mailTriage: { on: false, seen: {} } };
 }
 
 function defaultHabits() {

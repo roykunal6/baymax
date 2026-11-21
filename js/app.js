@@ -23,7 +23,7 @@ import { lock, changePassword } from './auth.js';
 import { cloud } from './cloud.js';
 import { createSync, resetSyncMeta } from './sync.js';
 import { cipherFor, signOut, renderSecurity } from './gate.js';
-import { startMailTasks, checkMailForTasks, setMailTasksOn, lastMailCheck } from './mailtasks.js';
+import { startMailTasks, checkMailForTasks, setMailTasksOn, lastMailCheck, previewMailTasks } from './mailtasks.js';
 import { openMessage } from './mail.js';
 import { planBankItems } from './bankfeed.js';
 import { uploadDue } from './zerodha.js';
@@ -353,15 +353,35 @@ function renderMailTasksSetting() {
   const box = $('#mailtasks');
   if (!box) return;
   if (!cloud.keys) { box.closest('.card').hidden = true; return; }
-  const on = state.mailTriage?.on !== false;
+  const on = state.mailTriage?.on === true;
   const t = lastMailCheck();
   box.innerHTML = `
     <label class="check"><input type="checkbox" id="mailtasks-on" ${on ? 'checked' : ''}> Turn emails into tasks automatically</label>
+    ${on ? '' : '<p class="hint">Off for now. Tap <strong>Preview from my inbox</strong> to see what it would add, then switch it on.</p>'}
     <p class="hint">Every 15 minutes while Baymax is open, it reads your Zoho inbox (last 14 days) and adds tasks for call requests, deadlines, people chasing you, and questions you haven’t answered within 4 hours. Newsletters and notifications are ignored. Reply tasks tick themselves off when you reply. Nothing is marked as read.</p>
-    <p class="hint">${t ? `Last checked ${new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.` : 'Not checked yet.'}</p>
-    <button class="btn" type="button" id="mailtasks-now">Check now</button>`;
+    ${on ? `<p class="hint">${t ? `Last checked ${new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.` : 'Not checked yet.'}</p>` : ''}
+    <div class="btn-row">
+      <button class="btn ${on ? '' : 'primary'}" type="button" id="mailtasks-preview">Preview from my inbox</button>
+      ${on ? '<button class="btn" type="button" id="mailtasks-now">Check now</button>' : ''}
+    </div>
+    <div id="mailtasks-result"></div>`;
+  $('#mailtasks-preview').onclick = async (e) => {
+    const out = $('#mailtasks-result');
+    e.target.disabled = true; e.target.textContent = 'Reading your inbox…';
+    try {
+      const r = await previewMailTasks();
+      const s = r.stats;
+      const KIND = { call: '📞 Call', followup: '🔁 Followed up', deadline: '📅 Deadline', reply: '✉️ Reply' };
+      out.innerHTML = `<p class="hint"><strong>Preview only — nothing was added.</strong> ${esc(s.mailbox || '')}: checked ${s.checked ?? '?'} emails from the last 14 days, ignored ${s.ignored ?? '?'} (shopping, notifications, newsletters, system mail), read ${s.fromPeople ?? '?'} from people. Already replied to: ${r.replied.length}.</p>
+        ${r.items.length ? `<ul class="list preview-list">${r.items.map((i) => `<li class="row"><div class="grow"><div class="title">${esc(i.title)}</div><div class="meta">${KIND[i.kind] || ''} · received ${esc(new Date(i.time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }))}${i.due ? ` · due ${esc(formatDue(i.due))}` : ''}</div></div></li>`).join('')}</ul>`
+          : '<p class="hint">No tasks would be added right now.</p>'}`;
+    } catch (err) {
+      out.innerHTML = `<p class="hint bad">${esc(err.code === 'not_connected' ? 'Connect Zoho Mail in the Mail tab first.' : err.message)}</p>`;
+    }
+    e.target.disabled = false; e.target.textContent = 'Preview again';
+  };
   $('#mailtasks-on').onchange = (e) => { setMailTasksOn(e.target.checked); toast(e.target.checked ? 'Email → tasks is on' : 'Email → tasks is off'); };
-  $('#mailtasks-now').onclick = async (e) => {
+  if ($('#mailtasks-now')) $('#mailtasks-now').onclick = async (e) => {
     e.target.disabled = true; e.target.textContent = 'Checking…';
     try {
       const r = await checkMailForTasks({ force: true, announce: false });

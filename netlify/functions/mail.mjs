@@ -320,7 +320,8 @@ const actions = {
     await Promise.all(toRead.map(async (m) => {
       try { m.text = htmlToText((await zoho(`/accounts/${accountId}/folders/${m.folderId}/messages/${m.messageId}/content`))?.content || '').slice(0, 6000); } catch { /* use the summary */ }
     }));
-    return triageMessages({ inbox, sent, me: email, days });
+    const people = inbox.filter((m) => isPersonMessage(m, email)).length;
+    return { ...triageMessages({ inbox, sent, me: email, days }), stats: { mailbox: email, checked: inbox.length, fromPeople: people, ignored: inbox.length - people } };
   },
 
   /** Moves to Trash (Zoho keeps it there; nothing is permanently deleted). */
