@@ -5,7 +5,7 @@
 
 import { state, save } from './store.js';
 import { cloud } from './cloud.js';
-import { mailApi } from './mail.js';
+import { mailApi, loadMailboxes } from './mail.js';
 
 const EVERY = 15 * 60 * 1000;
 const LAST = 'baymax:mailtasks-last';
@@ -36,7 +36,7 @@ export function applyTriage(st, result, now = Date.now()) {
     const task = {
       id, title: it.title, due: it.due || null, done: false, notified: false, isTimer: false,
       createdAt: new Date(now).toISOString(),
-      source: { type: 'mail', kind: it.kind, messageId: it.messageId, folderId: it.folderId, subject: it.subject, from: it.from?.name || it.from?.email || '' },
+      source: { type: 'mail', kind: it.kind, messageId: it.messageId, folderId: it.folderId, subject: it.subject, from: it.from?.name || it.from?.email || '', mailbox: it.mailbox || 'primary', mailboxEmail: it.mailboxEmail || '' },
     };
     st.tasks.push(task);
     added.push(task);
@@ -61,7 +61,7 @@ export async function checkMailForTasks({ force = false, announce = true } = {})
   if (!force && Date.now() - last() < EVERY) return null;
   running = true;
   try {
-    const r = await mailApi('triage', { days: 14, skip: Object.keys(triageState().seen) });
+    const r = await triageAll(Object.keys(triageState().seen));
     setLast(Date.now());
     const out = applyTriage(state, r);
     if (out.added.length || out.completed.length) save();
@@ -85,10 +85,22 @@ export function startMailTasks(toastFn) {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkMailForTasks(); });
 }
 
-/** Dry run: what would be added from the inbox right now, without adding anything. */
+/** Run the check on every connected mailbox and combine the results. */
+async function triageAll(skip) {
+  const boxes = await loadMailboxes();
+  const res = await Promise.allSettled(boxes.map((b) => mailApi('triage', { days: 14, skip, mailbox: b.id })
+    .then((r) => ({ ...r, items: (r.items || []).map((i) => ({ ...i, mailbox: b.id, mailboxEmail: b.email })), stats: { ...(r.stats || {}), mailbox: r.stats?.mailbox || b.email } }))));
+  if (!boxes.length || res.every((x) => x.status === 'rejected')) throw res[0]?.reason || Object.assign(new Error('Zoho Mail isn’t connected yet.'), { code: 'not_connected' });
+  const ok = res.filter((x) => x.status === 'fulfilled').map((x) => x.value);
+  return {
+    items: ok.flatMap((r) => r.items), replied: ok.flatMap((r) => r.replied || []), examined: ok.flatMap((r) => r.examined || []),
+    stats: ok.map((r) => r.stats), failed: res.map((x, i) => (x.status === 'rejected' ? `${boxes[i].email}: ${x.reason?.message}` : null)).filter(Boolean),
+  };
+}
+
+/** Dry run: what would be added from all mailboxes right now, without adding anything. */
 export async function previewMailTasks() {
-  const r = await mailApi('triage', { days: 14, skip: [] });
-  return { items: r.items || [], replied: r.replied || [], stats: r.stats || {} };
+  return triageAll([]);
 }
 
 export function setMailTasksOn(on) {

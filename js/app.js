@@ -24,7 +24,7 @@ import { cloud } from './cloud.js';
 import { createSync, resetSyncMeta } from './sync.js';
 import { cipherFor, signOut, renderSecurity } from './gate.js';
 import { startMailTasks, checkMailForTasks, setMailTasksOn, lastMailCheck, previewMailTasks } from './mailtasks.js';
-import { openMessage } from './mail.js';
+import { openMessage, finishMailboxAdd } from './mail.js';
 import { planBankItems } from './bankfeed.js';
 import { uploadDue } from './zerodha.js';
 import { setPaid } from './store.js';
@@ -327,7 +327,7 @@ function renderTasks() {
       <input type="checkbox" ${t.done ? 'checked' : ''} aria-label="Done">
       <div class="grow"><div class="title">${t.isTimer ? '⏱ ' : ''}${esc(t.title)}</div>
         ${t.due ? `<div class="meta ${overdue ? 'bad' : ''}">${overdue ? 'Overdue · ' : ''}${esc(formatDue(t.due))}</div>` : ''}
-        ${t.source?.type === 'mail' ? `<div class="meta mail-src">✉️ ${esc(MAIL_KIND[t.source.kind] || 'Email')}${t.autoDone === 'replied' ? ' · you replied' : ''} · <button type="button" class="link open-mail">Open email</button></div>` : ''}</div>
+        ${t.source?.type === 'mail' ? `<div class="meta mail-src">✉️ ${esc(MAIL_KIND[t.source.kind] || 'Email')}${t.source.mailboxEmail ? ` · ${esc(t.source.mailboxEmail.split('@')[0])}@` : ''}${t.autoDone === 'replied' ? ' · you replied' : ''} · <button type="button" class="link open-mail">Open email</button></div>` : ''}</div>
       <button class="del" aria-label="Delete">×</button></li>`;
   }).join('') : `<li class="empty">${taskFilter === 'done' ? 'Nothing completed yet.' : 'All clear. Say “add task …” to create one.'}</li>`;
 
@@ -344,7 +344,7 @@ $('#task-list').addEventListener('click', (e) => {
   if (e.target.closest('.del')) removeTask(li.dataset.id);
   if (e.target.closest('.open-mail')) {
     const t = state.tasks.find((x) => x.id === li.dataset.id);
-    if (t?.source) openMessage({ messageId: t.source.messageId, folderId: t.source.folderId, subject: t.source.subject });
+    if (t?.source) openMessage({ messageId: t.source.messageId, folderId: t.source.folderId, subject: t.source.subject, mailbox: t.source.mailbox || 'primary', mailboxEmail: t.source.mailboxEmail });
   }
 });
 const MAIL_KIND = { call: 'Call request', followup: 'They followed up', deadline: 'Deadline / reminder', reply: 'Awaiting your reply' };
@@ -358,7 +358,7 @@ function renderMailTasksSetting() {
   box.innerHTML = `
     <label class="check"><input type="checkbox" id="mailtasks-on" ${on ? 'checked' : ''}> Turn emails into tasks automatically</label>
     ${on ? '' : '<p class="hint">Off for now. Tap <strong>Preview from my inbox</strong> to see what it would add, then switch it on.</p>'}
-    <p class="hint">Every 15 minutes while Baymax is open, it reads your Zoho inbox (last 14 days) and adds tasks for call requests, deadlines, people chasing you, and questions you haven’t answered within 4 hours. Newsletters and notifications are ignored. Reply tasks tick themselves off when you reply. Nothing is marked as read.</p>
+    <p class="hint">Every 15 minutes while Baymax is open, it reads your Zoho inboxes (last 14 days) and adds tasks for call requests, deadlines, people chasing you, and questions you haven’t answered within 4 hours. Newsletters and notifications are ignored. Reply tasks tick themselves off when you reply. Nothing is marked as read.</p>
     ${on ? `<p class="hint">${t ? `Last checked ${new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.` : 'Not checked yet.'}</p>` : ''}
     <div class="btn-row">
       <button class="btn ${on ? '' : 'primary'}" type="button" id="mailtasks-preview">Preview from my inbox</button>
@@ -370,10 +370,11 @@ function renderMailTasksSetting() {
     e.target.disabled = true; e.target.textContent = 'Reading your inbox…';
     try {
       const r = await previewMailTasks();
-      const s = r.stats;
+      const stats = Array.isArray(r.stats) ? r.stats : [r.stats || {}];
       const KIND = { call: '📞 Call', followup: '🔁 Followed up', deadline: '📅 Deadline', reply: '✉️ Reply' };
-      out.innerHTML = `<p class="hint"><strong>Preview only — nothing was added.</strong> ${esc(s.mailbox || '')}: checked ${s.checked ?? '?'} emails from the last 14 days, ignored ${s.ignored ?? '?'} (shopping, notifications, newsletters, system mail), read ${s.fromPeople ?? '?'} from people. Already replied to: ${r.replied.length}.</p>
-        ${r.items.length ? `<ul class="list preview-list">${r.items.map((i) => `<li class="row"><div class="grow"><div class="title">${esc(i.title)}</div><div class="meta">${KIND[i.kind] || ''} · received ${esc(new Date(i.time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }))}${i.due ? ` · due ${esc(formatDue(i.due))}` : ''}</div></div></li>`).join('')}</ul>`
+      out.innerHTML = `<p class="hint"><strong>Preview only — nothing was added.</strong> Last 14 days: ${stats.map((s) => `${esc(s.mailbox || '')} — ${s.checked ?? '?'} emails, ${s.ignored ?? '?'} ignored (shopping, notifications, newsletters, system mail)`).join('; ')}. Already replied to: ${r.replied.length}.</p>
+        ${(r.failed || []).map((f) => `<p class="hint bad">${esc(f)}</p>`).join('')}
+        ${r.items.length ? `<ul class="list preview-list">${r.items.map((i) => `<li class="row"><div class="grow"><div class="title">${esc(i.title)}</div><div class="meta">${KIND[i.kind] || ''}${stats.length > 1 ? ` · ${esc(i.mailboxEmail || '')}` : ''} · received ${esc(new Date(i.time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }))}${i.due ? ` · due ${esc(formatDue(i.due))}` : ''}</div></div></li>`).join('')}</ul>`
           : '<p class="hint">No tasks would be added right now.</p>'}`;
     } catch (err) {
       out.innerHTML = `<p class="hint bad">${esc(err.code === 'not_connected' ? 'Connect Zoho Mail in the Mail tab first.' : err.message)}</p>`;
@@ -782,6 +783,8 @@ function startCloudSync() {
   renderSecurity($('#security'), toast);
   startMailTasks(toast);
   renderMailTasksSetting();
+  // Back from Zoho after "Add mailbox".
+  finishMailboxAdd().then((handled) => { if (handled) showView('mail'); }).catch((e) => toast(e.message));
 }
 
 // ---------------------------------------------------------------- bank alerts → spends
@@ -819,7 +822,10 @@ let startView = (location.hash || '').replace('#', '');
 if (!startView) { try { startView = localStorage.getItem('voice-assistant:tab') || 'home'; } catch { startView = 'home'; } }
 if (startView === 'assistant') startView = 'chat';
 showView(startView, { scroll: false });
-window.addEventListener('hashchange', () => showView(location.hash.replace('#', '')));
+window.addEventListener('hashchange', () => {
+  if (location.hash.startsWith('#zoho-callback=')) { finishMailboxAdd().then(() => showView('mail')).catch((e) => toast(e.message)); return; }
+  showView(location.hash.replace('#', ''));
+});
 
 startScheduler({
   onReminder: async (t) => {
