@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { triageMessages, classify, freshText, isPersonMessage, hasReply, firstName } from '../js/mailtriage.js';
+import { triageMessages, classify, freshText, isPersonMessage, hasReply, firstName, explicitDate } from '../js/mailtriage.js';
 import { applyTriage } from '../js/mailtasks.js';
 
 const ME = 'kunal.roy@thestralmedia.com';
@@ -100,4 +100,23 @@ test('one task per conversation (newest email wins)', () => {
   const r = triageMessages({ inbox: [b, a], sent: [], me: ME, now: NOW });
   assert.equal(r.items.length, 1);
   assert.equal(r.items[0].messageId, b.messageId);
+});
+
+test('lessons from kunal.roy@ inbox', () => {
+  // forwarding to a colleague is not replying to the client
+  const m = msg({ subject: 'Influencer Recommendations & Costing', text: 'We would need your help with recommendations and costing.', email: 'samreen@omc.com', threadId: 'T9', ago: 48 });
+  assert.equal(hasReply(m, [{ threadId: 'T9', subject: 'Fwd: Influencer Recommendations & Costing', to: [{ email: 'hitesh@thestralmedia.com' }], time: m.time + H }]), false);
+  assert.equal(hasReply(m, [{ threadId: 'T9', subject: 'Re: Influencer Recommendations & Costing', to: [{ email: 'samreen@omc.com' }], time: m.time + H }]), true);
+  assert.equal(classify(m).kind, 'reply');
+  assert.equal(classify({ subject: 'Supper club', text: 'Lets plan two more. Please comeback with list.' }).kind, 'reply');
+  // meeting links, auto-replies, invites, drive shares
+  assert.equal(isPersonMessage(msg({ subject: 'BMW | Handover', summary: 'Microsoft Teams meeting Join: https://teams.microsoft.com/meet/1?p=2' }), ME), false);
+  for (const subject of ['Automatic reply: Estimate', 'Invitation: Kunal x Spectal @ Sat', 'Updated invitation: Call', 'Santosh shared the folder "Ai Video 2" with you'])
+    assert.equal(isPersonMessage(msg({ subject }), ME), false, subject);
+  // dates
+  assert.equal(explicitDate('is due on 10th December 2026').toDateString(), new Date(2026, 11, 10).toDateString());
+  assert.equal(explicitDate('pitch by Nov 13', new Date(2026, 10, 1)).getDate(), 13);
+  assert.equal(new Date(classify({ subject: 'Fifth Instalment is due on 10th December 2026', text: '' }, new Date(NOW)).due).getMonth(), 11);
+  // quoted reply inside a one-line preview
+  assert.equal(freshText('TDS deducted twice. Regards, Bhavika From: Kunal Roy <k@x.com> Sent: 18 November 2026 To: Bhavika Subject: RE: due date list'), 'TDS deducted twice. Regards, Bhavika');
 });
