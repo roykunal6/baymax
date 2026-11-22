@@ -26,7 +26,13 @@ export async function mailApi(action, params = {}) {
 }
 
 // ---------------------------------------------------------------- view state
-const view = { status: null, folder: 'inbox', unread: false, q: '', messages: [], loading: false, error: null, start: 1, more: false };
+const view = { status: null, folder: 'inbox', unread: false, q: '', messages: [], loading: false, error: null, start: 1, more: false, box: 'all', manage: false };
+
+/** Connected mailboxes [{id, email}] (the main one first). */
+export const mailboxes = () => view.status?.mailboxes || [];
+const boxEmail = (id) => mailboxes().find((b) => b.id === id)?.email || '';
+const short = (e) => String(e || '').split('@')[0];
+export async function loadMailboxes() { if (!view.status) await loadStatus(); return mailboxes(); }
 let el = null;
 const FOLDERS = [['inbox', 'Inbox'], ['unread', 'Unread'], ['sent', 'Sent'], ['archive', 'Archive'], ['trash', 'Trash']];
 
@@ -63,12 +69,16 @@ async function loadList({ append = false } = {}) {
   render();
   try {
     const limit = 25;
-    const r = view.q
-      ? await mailApi('search', { q: view.q, start: view.start, limit })
-      : await mailApi('list', { folder: view.folder === 'unread' ? 'inbox' : view.folder, unread: view.folder === 'unread', start: view.start, limit });
-    view.messages = append ? view.messages.concat(r.messages) : r.messages;
-    view.more = r.messages.length === limit;
-    view.error = null;
+    const boxes = view.box === 'all' ? mailboxes() : mailboxes().filter((b) => b.id === view.box);
+    const results = await Promise.allSettled(boxes.map((b) => (view.q
+      ? mailApi('search', { q: view.q, start: view.start, limit, mailbox: b.id })
+      : mailApi('list', { folder: view.folder === 'unread' ? 'inbox' : view.folder, unread: view.folder === 'unread', start: view.start, limit, mailbox: b.id }))
+      .then((r) => r.messages.map((m) => ({ ...m, mailbox: b.id, mailboxEmail: b.email })))));
+    const got = results.filter((x) => x.status === 'fulfilled').flatMap((x) => x.value).sort((a, b) => (b.time || 0) - (a.time || 0));
+    const failed = results.map((x, i) => (x.status === 'rejected' ? `${boxes[i].email || 'mailbox'}: ${x.reason?.message}` : null)).filter(Boolean);
+    view.messages = append ? view.messages.concat(got) : got;
+    view.more = results.some((x) => x.status === 'fulfilled' && x.value.length === limit);
+    view.error = failed.length ? new Error(failed.join(' · ')) : null;
   } catch (e) { view.error = e; }
   view.loading = false;
   render();
@@ -81,17 +91,55 @@ function render() {
   if (!s) { el.innerHTML = `${head}<p class="empty">Loading…</p>`; return; }
   if (!s.connected) { el.innerHTML = head + setupCard(); return; }
   el.innerHTML = `${head}
-    <p class="hint" style="margin-top:-8px">${esc(s.email || '')}</p>
+    ${mailboxBar(s)}
     <form class="add-bar" data-form="search" role="search"><input name="q" type="search" placeholder="Search mail… e.g. ravi@client.com or invoice" value="${esc(view.q)}" autocomplete="off"><button class="btn">Search</button></form>
     <div class="chips">${FOLDERS.map(([k, l]) => `<button type="button" class="chip ${!view.q && view.folder === k ? 'on' : ''}" data-act="folder" data-f="${k}">${l}</button>`).join('')}
       ${view.q ? `<button type="button" class="chip on" data-act="clear-search">✕ “${esc(view.q)}”</button>` : ''}</div>
     ${view.error ? `<div class="alert bad"><i>⚠️</i><span>${esc(view.error.message)}</span></div>` : ''}
     <ul class="rows">${view.messages.map((m, i) => `<li class="row tap mail-row ${m.unread ? 'unread' : ''}" data-act="open" data-i="${i}">
-      <div class="grow"><div class="mail-top"><span class="title">${m.unread ? '<i class="dot"></i>' : ''}${esc(m.from.name || m.from.email)}</span><span class="meta">${esc(when(m.time))}</span></div>
+      <div class="grow"><div class="mail-top"><span class="title">${m.unread ? '<i class="dot"></i>' : ''}${esc(m.from.name || m.from.email)}</span><span class="meta">${mailboxes().length > 1 ? `<span class="box-tag">${esc(short(m.mailboxEmail))}</span> ` : ''}${esc(when(m.time))}</span></div>
       <div class="mail-subject">${m.flagged ? '🚩 ' : ''}${m.hasAttachment ? '📎 ' : ''}${esc(m.subject)}</div>
       <div class="meta mail-summary">${esc(m.summary || '')}</div></div></li>`).join('')}</ul>
     ${view.loading ? '<p class="empty">Loading…</p>' : !view.messages.length ? `<p class="empty">${view.q ? 'No emails match.' : 'Nothing here.'}</p>` : ''}
     ${view.more && !view.loading ? '<button class="btn block" data-act="more" style="margin-top:12px">Load more</button>' : ''}`;
+}
+
+function mailboxBar(s) {
+  const boxes = mailboxes();
+  const chips = boxes.length > 1
+    ? `<div class="chips box-chips"><button type="button" class="chip ${view.box === 'all' ? 'on' : ''}" data-act="box" data-b="all">All mailboxes</button>${boxes.map((b) => `<button type="button" class="chip ${view.box === b.id ? 'on' : ''}" data-act="box" data-b="${esc(b.id)}">${esc(b.email || 'Mailbox')}</button>`).join('')}</div>`
+    : `<p class="hint" style="margin-top:-8px">${esc(s.email || '')}</p>`;
+  const manage = view.manage ? `<div class="card manage-boxes"><h3>Mailboxes</h3>
+      <ul class="rows">${boxes.map((b) => `<li class="row"><div class="grow"><div class="title">${esc(b.email || 'Mailbox')}</div>${b.error ? `<div class="meta bad">${esc(b.error)}</div>` : ''}</div><button class="btn small danger" data-act="remove-box" data-b="${esc(b.id)}">Remove</button></li>`).join('')}</ul>
+      ${s.canAdd ? '<button class="btn primary block" data-act="add-box">+ Add mailbox</button><p class="hint">You’ll sign in to Zoho as the mailbox you want to add. To add a different account, sign out of Zoho first. Best done on your laptop: on iPhone, the Home Screen app can’t always come back from Zoho’s sign-in page.</p>' : '<p class="hint">To add more mailboxes, the server needs ZOHO_WEB_CLIENT_ID and ZOHO_WEB_CLIENT_SECRET in Netlify.</p>'}
+    </div>` : '';
+  return `${chips}<div class="box-actions"><button type="button" class="link" data-act="manage">${view.manage ? 'Done' : `Mailboxes (${boxes.length})`}</button></div>${manage}`;
+}
+
+/** Add mailbox: sign in to Zoho as that account; Zoho sends you back to /api/mail/callback → the app. */
+export async function addMailbox() {
+  const state = [...crypto.getRandomValues(new Uint8Array(18))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  try { sessionStorage.setItem('baymax:zoho-state', state); localStorage.setItem('baymax:zoho-state', state); } catch { /* ignore */ }
+  const { url } = await mailApi('addStart', { state, redirect: `${location.origin}/api/mail/callback` });
+  location.href = url;
+}
+
+/** Back from Zoho with #zoho-callback=…: finish adding the mailbox. Returns true if it handled the URL. */
+export async function finishMailboxAdd() {
+  if (!location.hash.startsWith('#zoho-callback=')) return false;
+  const q = new URLSearchParams(decodeURIComponent(location.hash.slice('#zoho-callback='.length)));
+  history.replaceState(null, '', `${location.pathname}#mail`);
+  let want = null;
+  try { want = sessionStorage.getItem('baymax:zoho-state') || localStorage.getItem('baymax:zoho-state'); sessionStorage.removeItem('baymax:zoho-state'); localStorage.removeItem('baymax:zoho-state'); } catch { /* ignore */ }
+  if (q.get('error')) { toast(q.get('error') === 'access_denied' ? 'Mailbox not added (you chose Deny).' : `Zoho said: ${q.get('error')}`); return true; }
+  if (!want || q.get('state') !== want) { toast('That sign-in didn’t start here. Tap Add mailbox again.'); return true; }
+  try {
+    const r = await mailApi('addFinish', { code: q.get('code'), accountsServer: q.get('accounts-server'), redirect: `${location.origin}/api/mail/callback` });
+    toast(`Added ${r.mailbox.email}`);
+    view.status = null; view.messages = []; view.box = 'all';
+    await showMail();
+  } catch (e) { toast(e.message); }
+  return true;
 }
 
 function setupCard() {
@@ -114,7 +162,8 @@ function setupCard() {
     </ol>
     <form data-form="connect" class="form-grid"><label>Code from Zoho<input name="code" autocomplete="off" required placeholder="1000.xxxx…"></label>
     ${e && e.code !== 'not_connected' ? `<p class="alert bad">${esc(e.message)}</p>` : ''}
-    <button class="btn primary block">Connect</button></form></div>`;
+    <button class="btn primary block">Connect</button></form>
+    ${view.status?.canAdd ? '<p class="hint">Or sign in with Zoho directly:</p><button class="btn block" data-act="add-box">+ Add mailbox</button>' : ''}</div>`;
 }
 
 async function onSubmit(e) {
@@ -143,6 +192,13 @@ function onClick(e) {
   if (act === 'more') { view.start += 25; loadList({ append: true }); }
   if (act === 'retry') { view.status = null; showMail(); }
   if (act === 'compose') compose();
+  if (act === 'box') { view.box = t.dataset.b; loadList(); }
+  if (act === 'manage') { view.manage = !view.manage; render(); }
+  if (act === 'add-box') { t.disabled = true; t.textContent = 'Opening Zoho…'; addMailbox().catch((err) => { toast(err.message); render(); }); }
+  if (act === 'remove-box') {
+    if (t.dataset.armed !== '1') { t.dataset.armed = '1'; t.textContent = 'Tap again to remove'; setTimeout(() => { t.dataset.armed = ''; t.textContent = 'Remove'; }, 3500); return; }
+    mailApi('removeMailbox', { mailbox: t.dataset.b }).then(() => { toast('Mailbox removed'); view.status = null; view.messages = []; view.box = 'all'; showMail(); }).catch((err) => toast(err.message));
+  }
   if (act === 'open') openMessage(view.messages[+t.dataset.i]);
 }
 
@@ -153,14 +209,15 @@ export async function openMessage(m) {
   body.innerHTML = `<h2>${esc(m.subject)}</h2><p class="empty">Loading…</p>`;
   dlg.showModal();
   try {
-    const r = await mailApi('read', { folderId: m.folderId, messageId: m.messageId });
-    const msg = r.message;
+    const r = await mailApi('read', { folderId: m.folderId, messageId: m.messageId, mailbox: m.mailbox || 'primary' });
+    const msg = { ...r.message, mailbox: m.mailbox || 'primary', mailboxEmail: m.mailboxEmail || boxEmail(m.mailbox || 'primary') };
     m.unread = false;
     const people = (list) => list.map((x) => esc(x.name ? `${x.name} <${x.email}>` : x.email)).join(', ');
     body.innerHTML = `
       <h2>${esc(msg.subject)}</h2>
       <div class="mail-meta">
         <div><b>${esc(msg.from.name || msg.from.email)}</b> <span class="muted">&lt;${esc(msg.from.email)}&gt;</span></div>
+        ${mailboxes().length > 1 ? `<div class="muted">In ${esc(msg.mailboxEmail)}</div>` : ''}
         <div class="muted">To ${people(msg.to) || '—'}${msg.cc.length ? ` · Cc ${people(msg.cc)}` : ''}</div>
         <div class="muted">${msg.time ? new Date(msg.time).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : ''}${msg.hasAttachment ? ' · 📎 has attachments (open in Zoho to download)' : ''}</div>
       </div>
@@ -200,12 +257,12 @@ async function messageAction(kind, msg, r, btn) {
       btn.remove();
       return;
     }
-    if (kind === 'archive') { await mailApi('update', { mode: 'archiveMails', messageIds: [msg.messageId] }); return done('Archived'); }
-    if (kind === 'unread') { await mailApi('update', { mode: 'markAsUnread', messageIds: [msg.messageId] }); const m = view.messages.find((x) => x.messageId === msg.messageId); if (m) m.unread = true; return done('Marked unread'); }
-    if (kind === 'flag') { await mailApi('update', { mode: 'setFlag', messageIds: [msg.messageId], flag: 'important' }); const m = view.messages.find((x) => x.messageId === msg.messageId); if (m) m.flagged = true; return done('Flagged'); }
+    if (kind === 'archive') { await mailApi('update', { mode: 'archiveMails', messageIds: [msg.messageId], mailbox: msg.mailbox }); return done('Archived'); }
+    if (kind === 'unread') { await mailApi('update', { mode: 'markAsUnread', messageIds: [msg.messageId], mailbox: msg.mailbox }); const m = view.messages.find((x) => x.messageId === msg.messageId); if (m) m.unread = true; return done('Marked unread'); }
+    if (kind === 'flag') { await mailApi('update', { mode: 'setFlag', messageIds: [msg.messageId], flag: 'important', mailbox: msg.mailbox }); const m = view.messages.find((x) => x.messageId === msg.messageId); if (m) m.flagged = true; return done('Flagged'); }
     if (kind === 'delete') {
       if (btn.dataset.armed !== '1') { btn.dataset.armed = '1'; btn.textContent = 'Tap again to delete'; setTimeout(() => { btn.dataset.armed = ''; btn.textContent = 'Delete'; }, 3500); return; }
-      await mailApi('delete', { folderId: msg.folderId, messageId: msg.messageId });
+      await mailApi('delete', { folderId: msg.folderId, messageId: msg.messageId, mailbox: msg.mailbox });
       return done('Moved to Trash');
     }
   } catch (e) { toast(e.message); }
@@ -228,13 +285,14 @@ function sendSheet({ title, values, fields, onSend }) {
 
 export function compose(prefill = {}) {
   sendSheet({
-    title: 'New email', values: prefill,
+    title: 'New email', values: { from: mailboxes()[0]?.id, ...prefill },
     fields: [
+      ...(mailboxes().length > 1 ? [{ key: 'from', label: 'From', type: 'select', options: mailboxes().map((b) => ({ value: b.id, label: b.email || b.id })) }] : []),
       ...recipientFields,
       { key: 'subject', label: 'Subject', type: 'text' },
       { key: 'content', label: 'Message', type: 'textarea', rows: 8 },
     ],
-    onSend: (v) => mailApi('send', v),
+    onSend: ({ from, ...v }) => mailApi('send', { ...v, mailbox: from || 'primary' }),
   });
 }
 
@@ -254,39 +312,48 @@ const recipientFields = [
 ];
 
 export function replySheet(msg, all = false, text = '') {
-  const r = replyRecipients(msg, all, view.status?.email);
+  const mine = msg.mailboxEmail || boxEmail(msg.mailbox || 'primary') || view.status?.email;
+  const r = replyRecipients(msg, all, mine);
   sendSheet({
-    title: all ? 'Reply all' : 'Reply',
+    title: `${all ? 'Reply all' : 'Reply'}${mailboxes().length > 1 && mine ? ` · from ${mine}` : ''}`,
     values: { ...r, bcc: '', subject: /^re:/i.test(msg.subject) ? msg.subject : `Re: ${msg.subject}`, content: text },
     fields: [
       ...recipientFields,
       { key: 'subject', label: 'Subject', type: 'text', readonly: true },
       { key: 'content', label: 'Your reply', type: 'textarea', rows: 8, required: true },
     ],
-    onSend: (v) => mailApi('reply', { folderId: msg.folderId, messageId: msg.messageId, content: v.content, all, to: v.to, cc: v.cc, bcc: v.bcc }),
+    onSend: (v) => mailApi('reply', { folderId: msg.folderId, messageId: msg.messageId, content: v.content, all, to: v.to, cc: v.cc, bcc: v.bcc, mailbox: msg.mailbox || 'primary' }),
   });
 }
 
 function forwardSheet(msg) {
   sendSheet({
-    title: 'Forward', values: { subject: `Fwd: ${msg.subject}` },
+    title: `Forward${mailboxes().length > 1 && msg.mailboxEmail ? ` · from ${msg.mailboxEmail}` : ''}`, values: { subject: `Fwd: ${msg.subject}` },
     fields: [
       ...recipientFields,
       { key: 'subject', label: 'Subject', type: 'text', readonly: true },
       { key: 'content', label: 'Add a note (optional)', type: 'textarea', rows: 4 },
     ],
-    onSend: (v) => mailApi('forward', { folderId: msg.folderId, messageId: msg.messageId, to: v.to, cc: v.cc, bcc: v.bcc, content: v.content }),
+    onSend: (v) => mailApi('forward', { folderId: msg.folderId, messageId: msg.messageId, to: v.to, cc: v.cc, bcc: v.bcc, content: v.content, mailbox: msg.mailbox || 'primary' }),
   });
 }
 
 // ---------------------------------------------------------------- voice
 const isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim());
 
+/** Run one call on every mailbox and merge the messages, newest first. */
+async function acrossMailboxes(action, params) {
+  const boxes = await loadMailboxes();
+  const res = await Promise.allSettled((boxes.length ? boxes : [{ id: 'primary' }]).map((b) => mailApi(action, { ...params, mailbox: b.id })
+    .then((r) => r.messages.map((m) => ({ ...m, mailbox: b.id, mailboxEmail: b.email })))));
+  if (res.every((x) => x.status === 'rejected')) throw res[0].reason;
+  return res.filter((x) => x.status === 'fulfilled').flatMap((x) => x.value).sort((a, b) => (b.time || 0) - (a.time || 0));
+}
+
 async function latestFrom(who) {
-  const q = isEmail(who) ? `sender:${who}` : `sender:${who}`;
-  let r = await mailApi('search', { q, limit: 5 });
-  if (!r.messages.length && !isEmail(who)) r = await mailApi('search', { q: `entire:${who}`, limit: 5 });
-  return r.messages[0] || null;
+  let list = await acrossMailboxes('search', { q: `sender:${who}`, limit: 5 });
+  if (!list.length && !isEmail(who)) list = await acrossMailboxes('search', { q: `entire:${who}`, limit: 5 });
+  return list[0] || null;
 }
 
 /** Find someone's address from recent mail when you say a name instead of an email. */
@@ -304,19 +371,19 @@ export async function executeMail(a) {
   if (a.type === 'email' && !cloud.client) return null; // fall back to a draft in your mail app
   try {
     if (a.type === 'mail_check') {
-      const r = await mailApi('list', { folder: 'inbox', unread: true, limit: 10 });
+      const r = { messages: await acrossMailboxes('list', { folder: 'inbox', unread: true, limit: 10 }) };
       if (!r.messages.length) return { reply: 'No unread emails. Inbox zero! 🎉' };
       return { reply: `You have ${r.messages.length}${r.messages.length === 10 ? '+' : ''} unread email${r.messages.length === 1 ? '' : 's'}:`, items: readOut(r.messages), speakText: `You have ${r.messages.length} unread email${r.messages.length === 1 ? '' : 's'}. ${readOut(r.messages).slice(0, 3).join('. ')}.` };
     }
     if (a.type === 'mail_search') {
-      const r = await mailApi('search', { q: isEmail(a.q) ? a.q : a.from ? `sender:${a.q}` : a.q, limit: 10 });
+      const r = { messages: await acrossMailboxes('search', { q: isEmail(a.q) ? a.q : a.from ? `sender:${a.q}` : a.q, limit: 10 }) };
       if (!r.messages.length) return { reply: `No emails found for “${a.q}”.` };
       return { reply: `Found ${r.messages.length} email${r.messages.length === 1 ? '' : 's'}:`, items: r.messages.slice(0, 8).map((m) => `${when(m.time)} · ${m.from.name || m.from.email}: ${m.subject}`) };
     }
     if (a.type === 'mail_read') {
       const m = await latestFrom(a.who);
       if (!m) return { reply: `I couldn’t find an email from ${a.who}.` };
-      const r = await mailApi('read', { folderId: m.folderId, messageId: m.messageId });
+      const r = await mailApi('read', { folderId: m.folderId, messageId: m.messageId, mailbox: m.mailbox });
       const text = r.text.length > 600 ? r.text.slice(0, 600) + '…' : r.text;
       return { reply: `Latest from ${m.from.name || m.from.email}: “${m.subject}”.\n\n${text}`, speakText: `Latest from ${m.from.name || m.from.email}, ${m.subject}. ${text.slice(0, 400)}` };
     }

@@ -28,11 +28,21 @@ beforeEach(async () => {
     if (u.pathname === '/rest/v1/secrets') {
       if (method === 'GET') { const n = u.searchParams.get('name').replace('eq.', ''); return new Response(JSON.stringify(secrets[n] ? [{ value: secrets[n] }] : [])); }
       if (method === 'POST') { for (const r of body) secrets[r.name] = r.value; return new Response(null, { status: 201 }); }
-      if (method === 'DELETE') { delete secrets.zoho_refresh_token; return new Response(null, { status: 204 }); }
+      if (method === 'DELETE') { delete secrets[u.searchParams.get('name').replace('eq.', '')]; return new Response(null, { status: 204 }); }
     }
     if (u.host === 'accounts.zoho.in' && u.pathname === '/oauth/v2/token') {
       if (body.grant_type === 'authorization_code') return new Response(JSON.stringify(body.code === 'good-code' ? { access_token: 'at-new', refresh_token: 'rt-new', expires_in: 3600 } : { error: 'invalid_code' }));
       return new Response(JSON.stringify({ access_token: 'at-1', expires_in: 3600 }));
+    }
+    if (u.host === 'accounts.zoho.com.au' && u.pathname === '/oauth/v2/token') {
+      if (body.grant_type === 'authorization_code') return new Response(JSON.stringify(body.code === 'au-code' && body.client_id === 'wid' && body.redirect_uri === 'https://mybaymax.netlify.app/api/mail/callback' ? { access_token: 'at-au', refresh_token: 'rt-au', expires_in: 3600 } : { error: 'invalid_code' }));
+      return new Response(JSON.stringify({ access_token: 'at-au-2', expires_in: 3600 }));
+    }
+    if (u.host === 'mail.zoho.com.au') {
+      if (u.pathname === '/api/accounts') return ok([{ accountId: '777', primaryEmailAddress: 'digital@koalainvest.com.au' }]);
+      if (u.pathname === '/api/accounts/777/folders') return ok([{ folderId: '7001', folderName: 'Inbox', folderType: 'Inbox' }, { folderId: '7002', folderName: 'Sent', folderType: 'Sent' }]);
+      if (u.pathname === '/api/accounts/777/messages/view') return ok([{ messageId: '70', folderId: '7001', subject: 'Koala', fromAddress: 'amit@koalainvest.com.au', sender: 'Amit', toAddress: 'digital@koalainvest.com.au', ccAddress: 'Not Provided', summary: 'Hi', receivedTime: '1763600000000', status: '1' }]);
+      return ok({});
     }
     if (u.host === 'mail.zoho.in') {
       const p = u.pathname;
@@ -163,4 +173,71 @@ test('two-step on: an aal1 session is refused, aal2 is allowed', async () => {
   assert.equal((await r.json()).code, 'mfa_required');
   r = await call({ action: 'list' }, jwt('aal2'));
   assert.equal(r.status, 200);
+});
+
+test('triage reads emails without marking them read and returns task suggestions', async () => {
+  const realNow = Date.now;
+  Date.now = () => 1763600000000 + 86400000; // a day after the sample email
+  let r;
+  try { r = await (await call({ action: 'triage' })).json(); } finally { Date.now = realNow; }
+  assert.ok(Array.isArray(r.items) && Array.isArray(r.replied) && Array.isArray(r.examined));
+  assert.ok(calls.some((c) => /\/messages\/5\/content$/.test(c.url)), 'reads the text');
+  assert.ok(!calls.some((c) => c.method === 'PUT'), 'never marks as read');
+  assert.ok(calls.some((c) => c.url.includes('folderId=9002')), 'checks Sent for replies');
+});
+
+test('add a second mailbox (another company, Australian data centre) and use it', async () => {
+  process.env.ZOHO_WEB_CLIENT_ID = 'wid'; process.env.ZOHO_WEB_CLIENT_SECRET = 'wsec';
+  try {
+    let r = await (await call({ action: 'addStart', state: 'abcdefghijklmnop1234' })).json();
+    const u = new URL(r.url);
+    assert.equal(u.host, 'accounts.zoho.in');
+    assert.equal(u.searchParams.get('state'), 'abcdefghijklmnop1234');
+    assert.equal(u.searchParams.get('access_type'), 'offline');
+    assert.equal(u.searchParams.get('redirect_uri'), 'https://mybaymax.netlify.app/api/mail/callback');
+
+    const evil = await call({ action: 'addFinish', code: 'au-code', accountsServer: 'https://evil.example.com' });
+    assert.equal(evil.status, 400, 'never sends the client secret anywhere but Zoho');
+
+    r = await (await call({ action: 'addFinish', code: 'au-code', accountsServer: 'https://accounts.zoho.com.au' })).json();
+    assert.equal(r.mailbox.email, 'digital@koalainvest.com.au');
+    assert.match(secrets.zoho_mailboxes, /^enc1:/, 'stored encrypted');
+    assert.ok(!secrets.zoho_mailboxes.includes('rt-au'));
+    const id = r.mailbox.id;
+
+    _resetCache();
+    const st = await (await call({ action: 'status' })).json();
+    assert.deepEqual(st.mailboxes.map((m) => m.email), ['kunal.roy@thestralmedia.com', 'digital@koalainvest.com.au']);
+    assert.equal(st.canAdd, true);
+
+    calls.length = 0;
+    const list = await (await call({ action: 'list', mailbox: id })).json();
+    assert.equal(list.messages[0].messageId, '70');
+    assert.equal(list.mailbox, id);
+    assert.ok(calls.some((c) => c.url.startsWith('https://accounts.zoho.com.au/oauth/v2/token') && c.body.client_id === 'wid'), 'refreshes with the web client at its own data centre');
+    assert.ok(!calls.some((c) => c.url.includes('mail.zoho.in')), 'never mixes up mailboxes');
+
+    assert.equal((await call({ action: 'list', mailbox: 'mb-nope' })).status, 404);
+    assert.equal((await call({ action: 'list', mailbox: id }, 'good', OTHER)).status, 403, 'wrong device key');
+
+    await call({ action: 'removeMailbox', mailbox: id });
+    assert.equal(secrets.zoho_mailboxes, undefined);
+    assert.ok(calls.some((c) => c.url.includes('accounts.zoho.com.au/oauth/v2/token/revoke')));
+  } finally { delete process.env.ZOHO_WEB_CLIENT_ID; delete process.env.ZOHO_WEB_CLIENT_SECRET; }
+});
+
+test('addStart explains when the server isn’t set up for more mailboxes', async () => {
+  const r = await call({ action: 'addStart', state: 'abcdefghijklmnop1234' });
+  assert.equal(r.status, 503);
+  assert.equal((await r.json()).code, 'web_not_configured');
+});
+
+test('OAuth callback hands the code to the app in the fragment only', async () => {
+  const { default: cb } = await import('../netlify/functions/mail-callback.mjs');
+  const r = await cb(new Request('https://mybaymax.netlify.app/api/mail/callback?code=1000.abc&state=xyz&accounts-server=https%3A%2F%2Faccounts.zoho.com.au&location=au&junk=1'));
+  assert.equal(r.status, 302);
+  const loc = r.headers.get('location');
+  assert.ok(loc.startsWith('/#zoho-callback='));
+  const q = new URLSearchParams(decodeURIComponent(loc.split('=').slice(1).join('=')));
+  assert.deepEqual([q.get('code'), q.get('state'), q.get('accounts-server'), q.get('junk')], ['1000.abc', 'xyz', 'https://accounts.zoho.com.au', null]);
 });

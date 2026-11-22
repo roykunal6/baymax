@@ -8,7 +8,12 @@
 //
 // Env (Netlify → Site configuration → Environment variables):
 //   SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, BAYMAX_USER_ID
-//   ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET   from Zoho API Console → Self Client
+//   ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET   from Zoho API Console → Self Client (your main mailbox)
+//   ZOHO_WEB_CLIENT_ID, ZOHO_WEB_CLIENT_SECRET  Server-based client (Multi-DC on) for "Add mailbox";
+//                                        redirect URI https://<site>/api/mail/callback
+//
+// Mailboxes: "primary" is the Self Client one (secret zoho_refresh_token). Others added with Add mailbox
+// are kept in secret zoho_mailboxes: one JSON list, encrypted with your mail key.
 //   ZOHO_DC                              data centre: "in" (India, default), "com", "eu", "com.au", …
 //
 // Zoho Mail API reference: https://www.zoho.com/mail/help/api/
@@ -19,8 +24,11 @@ const dc = () => env().ZOHO_DC || 'in';
 const MAIL = () => `https://mail.zoho.${dc()}/api`;
 const ACCOUNTS = () => `https://accounts.zoho.${dc()}`;
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+const SCOPES = 'ZohoMail.accounts.READ,ZohoMail.folders.ALL,ZohoMail.messages.ALL';
+const redirectUri = (r) => { const u = String(r || ''); return /^https:\/\/[a-z0-9.-]+(:\d+)?\/api\/mail\/callback$/i.test(u) ? u : 'https://mybaymax.netlify.app/api/mail/callback'; };
 import { sealWithMailKey, openWithMailKey } from '../../js/vault.js';
+import { triageMessages, isPersonMessage } from '../../js/mailtriage.js';
 const keyHash = (k) => createHash('sha256').update(String(k)).digest('hex');
 // The mail key for the request being handled (each invocation handles one request at a time).
 let reqKey = null;
@@ -102,8 +110,37 @@ async function deleteSecret(name) {
 }
 
 // ---------------------------------------------------------------- Zoho tokens + account
-const cache = { token: null, exp: 0, keyHash: null, accountId: null, email: null, folders: null };
-export function _resetCache() { Object.assign(cache, { token: null, exp: 0, keyHash: null, accountId: null, email: null, folders: null }); }
+const caches = {};
+const fresh = () => ({ token: null, exp: 0, keyHash: null, accountId: null, email: null, folders: null });
+export function _resetCache(id) { if (id) caches[id] = fresh(); else for (const k of Object.keys(caches)) delete caches[k]; }
+// The mailbox this request is about (one request at a time per server instance, like reqKey).
+let reqBox = null;
+const PRIMARY = () => ({ id: 'primary', client: 'self', accountsServer: ACCOUNTS(), mailBase: MAIL() });
+const C = () => (caches[reqBox?.id || 'primary'] ||= fresh());
+const clientFor = (box) => (box.client === 'web'
+  ? { id: env().ZOHO_WEB_CLIENT_ID, secret: env().ZOHO_WEB_CLIENT_SECRET }
+  : { id: env().ZOHO_CLIENT_ID, secret: env().ZOHO_CLIENT_SECRET });
+
+/** Zoho's accounts servers per region; anything else is refused (the code exchange sends our client secret). */
+export const ZOHO_ACCOUNTS = /^https:\/\/accounts\.(zoho\.(com|in|eu|com\.au|jp|uk|sa|com\.cn)|zohocloud\.ca)$/;
+
+async function loadBoxes() {
+  const raw = await getSecret('zoho_mailboxes');
+  if (!raw) return [];
+  try { return JSON.parse(await openWithMailKey(reqKey, raw)); } catch {
+    throw Object.assign(new Error('This device’s keys don’t match. Lock and unlock Baymax again.'), { status: 403, code: 'bad_mail_key' });
+  }
+}
+async function saveBoxes(list) {
+  if (!list.length) return deleteSecret('zoho_mailboxes');
+  await setSecret('zoho_mailboxes', await sealWithMailKey(reqKey, JSON.stringify(list)));
+}
+async function resolveBox(id) {
+  if (!id || id === 'primary') return PRIMARY();
+  const box = (await loadBoxes()).find((b) => b.id === id);
+  if (!box) throw Object.assign(new Error('That mailbox isn’t connected any more.'), { status: 404, code: 'no_mailbox' });
+  return box;
+}
 
 /** The refresh token, decrypted with this request's mail key. A wrong key is refused. Old plain tokens are encrypted now. */
 async function refreshToken() {
@@ -120,11 +157,13 @@ async function refreshToken() {
 
 async function accessToken() {
   // A token cached in this warm server instance is only reused for a request carrying the same mail key.
+  const cache = C(), box = reqBox || PRIMARY();
   if (cache.token && cache.keyHash === keyHash(reqKey) && Date.now() < cache.exp - 60000) return cache.token;
-  const refresh = await refreshToken();
+  const refresh = box.id === 'primary' ? await refreshToken() : box.refresh;
   if (!refresh) throw Object.assign(new Error('Zoho Mail isn’t connected yet.'), { status: 409, code: 'not_connected' });
-  const body = new URLSearchParams({ refresh_token: refresh, grant_type: 'refresh_token', client_id: env().ZOHO_CLIENT_ID, client_secret: env().ZOHO_CLIENT_SECRET });
-  const r = await fetch(`${ACCOUNTS()}/oauth/v2/token`, { method: 'POST', body });
+  const cl = clientFor(box);
+  const body = new URLSearchParams({ refresh_token: refresh, grant_type: 'refresh_token', client_id: cl.id, client_secret: cl.secret });
+  const r = await fetch(`${box.accountsServer}/oauth/v2/token`, { method: 'POST', body });
   const data = await r.json().catch(() => ({}));
   if (!data.access_token) throw Object.assign(new Error('Zoho refused the saved connection. Reconnect Zoho Mail in Baymax.'), { status: 409, code: 'not_connected' });
   cache.token = data.access_token;
@@ -134,7 +173,7 @@ async function accessToken() {
 }
 
 async function zoho(path, { method = 'GET', query, body } = {}) {
-  const url = new URL(`${MAIL()}${path}`);
+  const url = new URL(`${(reqBox || PRIMARY()).mailBase}${path}`);
   for (const [k, v] of Object.entries(query || {})) if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
   const r = await fetch(url, {
     method,
@@ -150,6 +189,7 @@ async function zoho(path, { method = 'GET', query, body } = {}) {
 }
 
 async function account() {
+  const cache = C();
   if (cache.accountId) return cache;
   const list = await zoho('/accounts');
   const acc = (list || [])[0];
@@ -160,6 +200,7 @@ async function account() {
 }
 
 async function folders() {
+  const cache = C();
   if (cache.folders) return cache.folders;
   const { accountId } = await account();
   cache.folders = (await zoho(`/accounts/${accountId}/folders`)).map((f) => ({ folderId: String(f.folderId), name: f.folderName, type: f.folderType, path: f.path }));
@@ -192,10 +233,57 @@ function summarise(m) {
 // ---------------------------------------------------------------- actions
 const actions = {
   async status() {
-    const refresh = await refreshToken();
-    if (!refresh) return { connected: false, dc: dc() };
-    const a = await account();
-    return { connected: true, email: a.email, dc: dc() };
+    const boxes = await loadBoxes();
+    const list = [];
+    if (await refreshToken()) {
+      reqBox = PRIMARY();
+      try { list.push({ id: 'primary', email: (await account()).email }); } catch (e) { list.push({ id: 'primary', email: null, error: e.message }); }
+    }
+    for (const b of boxes) list.push({ id: b.id, email: b.email });
+    reqBox = null;
+    const canAdd = !!(env().ZOHO_WEB_CLIENT_ID && env().ZOHO_WEB_CLIENT_SECRET);
+    if (!list.length) return { connected: false, dc: dc(), mailboxes: [], canAdd };
+    return { connected: true, email: list[0].email, dc: dc(), mailboxes: list, canAdd };
+  },
+
+  /** Add mailbox, step 1: where to send you to sign in to Zoho. `state` is checked by the app on return. */
+  async addStart({ state, redirect }) {
+    if (!env().ZOHO_WEB_CLIENT_ID || !env().ZOHO_WEB_CLIENT_SECRET) throw Object.assign(new Error('Adding mailboxes isn’t set up on the server yet (ZOHO_WEB_CLIENT_ID / ZOHO_WEB_CLIENT_SECRET).'), { status: 503, code: 'web_not_configured' });
+    if (!/^[A-Za-z0-9_-]{16,128}$/.test(String(state || ''))) throw Object.assign(new Error('Bad request'), { status: 400 });
+    // Start at the client's home data centre; Zoho sends each account on to its own region.
+    const u = new URL(`${ACCOUNTS()}/oauth/v2/auth`);
+    u.search = new URLSearchParams({ scope: SCOPES, client_id: env().ZOHO_WEB_CLIENT_ID, response_type: 'code', access_type: 'offline', prompt: 'consent', redirect_uri: redirectUri(redirect), state }).toString();
+    return { url: u.href };
+  },
+
+  /** Add mailbox, step 2: exchange the code Zoho sent back; store the mailbox encrypted. */
+  async addFinish({ code, accountsServer, redirect }) {
+    const server = String(accountsServer || 'https://accounts.zoho.com').replace(/\/+$/, '');
+    if (!ZOHO_ACCOUNTS.test(server)) throw Object.assign(new Error('Unexpected Zoho sign-in server.'), { status: 400 });
+    if (!code) throw Object.assign(new Error('Zoho didn’t send a code. Try Add mailbox again.'), { status: 400 });
+    const body = new URLSearchParams({ code: String(code), grant_type: 'authorization_code', client_id: env().ZOHO_WEB_CLIENT_ID, client_secret: env().ZOHO_WEB_CLIENT_SECRET, redirect_uri: redirectUri(redirect) });
+    const r = await fetch(`${server}/oauth/v2/token`, { method: 'POST', body });
+    const data = await r.json().catch(() => ({}));
+    if (!data.refresh_token) throw Object.assign(new Error(data.error === 'invalid_code' ? 'That sign-in expired. Tap Add mailbox again.' : `Zoho said: ${data.error || r.status}`), { status: 400 });
+    const box = { id: `mb-${randomUUID().slice(0, 8)}`, client: 'web', accountsServer: server, mailBase: `${server.replace('://accounts.', '://mail.')}/api`, refresh: data.refresh_token };
+    reqBox = box;
+    Object.assign(C(), { token: data.access_token, keyHash: keyHash(reqKey), exp: Date.now() + (Number(data.expires_in) || 3600) * 1000 });
+    box.email = (await account()).email;
+    const boxes = (await loadBoxes()).filter((b) => (b.email || '').toLowerCase() !== (box.email || '').toLowerCase());
+    boxes.push(box);
+    await saveBoxes(boxes);
+    return { mailbox: { id: box.id, email: box.email } };
+  },
+
+  /** Disconnect one mailbox (Zoho is told to forget Baymax's access). */
+  async removeMailbox({ mailbox }) {
+    if (!mailbox || mailbox === 'primary') { reqBox = PRIMARY(); return actions.disconnect(); }
+    const boxes = await loadBoxes();
+    const box = boxes.find((b) => b.id === mailbox);
+    if (box) await fetch(`${box.accountsServer}/oauth/v2/token/revoke?token=${encodeURIComponent(box.refresh)}`, { method: 'POST' }).catch(() => {});
+    await saveBoxes(boxes.filter((b) => b.id !== mailbox));
+    _resetCache(mailbox);
+    return { removed: true };
   },
 
   /** Exchange a Self Client grant code for a refresh token and save it. */
@@ -209,10 +297,8 @@ const actions = {
       throw Object.assign(new Error(why), { status: 400 });
     }
     await setSecret('zoho_refresh_token', await sealWithMailKey(reqKey, data.refresh_token));
-    _resetCache();
-    cache.token = data.access_token;
-    cache.keyHash = keyHash(reqKey);
-    cache.exp = Date.now() + (Number(data.expires_in) || 3600) * 1000;
+    _resetCache('primary');
+    Object.assign(C(), { token: data.access_token, keyHash: keyHash(reqKey), exp: Date.now() + (Number(data.expires_in) || 3600) * 1000 });
     const a = await account();
     return { connected: true, email: a.email };
   },
@@ -221,7 +307,7 @@ const actions = {
     const refresh = await refreshToken().catch(() => null);
     if (refresh) await fetch(`${ACCOUNTS()}/oauth/v2/token/revoke?token=${encodeURIComponent(refresh)}`, { method: 'POST' }).catch(() => {});
     await deleteSecret('zoho_refresh_token');
-    _resetCache();
+    _resetCache('primary');
     return { connected: false };
   },
 
@@ -304,6 +390,25 @@ const actions = {
     return { ok: true };
   },
 
+  /** Emails that need something from you → task suggestions. Reads text without marking anything read.
+   *  skip: message ids already handled (their text isn't fetched again). */
+  async triage({ days = 14, skip = [] }) {
+    const { accountId, email } = await account();
+    const [inboxId, sentId] = await Promise.all([folderId('inbox'), folderId('sent')]);
+    const view = (fid) => zoho(`/accounts/${accountId}/messages/view`, { query: { folderId: fid, start: 1, limit: 100, status: 'all', sortorder: false } });
+    const [inRaw, sentRaw] = await Promise.all([view(inboxId), view(sentId)]);
+    const since = Date.now() - Math.min(Number(days) || 14, 60) * 864e5;
+    const inbox = (inRaw || []).map(summarise).filter((m) => m.time && m.time >= since);
+    const sent = (sentRaw || []).map(summarise);
+    const done = new Set((Array.isArray(skip) ? skip : []).map(String));
+    const toRead = inbox.filter((m) => !done.has(m.messageId) && isPersonMessage(m, email)).slice(0, 15);
+    await Promise.all(toRead.map(async (m) => {
+      try { m.text = htmlToText((await zoho(`/accounts/${accountId}/folders/${m.folderId}/messages/${m.messageId}/content`))?.content || '').slice(0, 6000); } catch { /* use the summary */ }
+    }));
+    const people = inbox.filter((m) => isPersonMessage(m, email)).length;
+    return { ...triageMessages({ inbox, sent, me: email, days }), stats: { mailbox: email, checked: inbox.length, fromPeople: people, ignored: inbox.length - people } };
+  },
+
   /** Moves to Trash (Zoho keeps it there; nothing is permanently deleted). */
   async delete({ folderId: fid, messageId }) {
     const { accountId } = await account();
@@ -329,11 +434,15 @@ export default async (req) => {
   const fn = actions[body?.action];
   if (!fn) return json(400, { error: 'Unknown action' });
   try {
-    return json(200, await fn(body));
+    const global = ['status', 'addStart', 'addFinish', 'removeMailbox', 'connect', 'disconnect'];
+    reqBox = global.includes(body.action) ? PRIMARY() : await resolveBox(body.mailbox);
+    const out = await fn(body);
+    return json(200, body.mailbox && !global.includes(body.action) ? { ...out, mailbox: reqBox.id } : out);
   } catch (err) {
     return json(err.status || 500, { error: err.message || 'Something went wrong', code: err.code });
   } finally {
     reqKey = null;
+    reqBox = null;
   }
 };
 
