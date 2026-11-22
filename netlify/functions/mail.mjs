@@ -250,7 +250,8 @@ const actions = {
   async addStart({ state, redirect }) {
     if (!env().ZOHO_WEB_CLIENT_ID || !env().ZOHO_WEB_CLIENT_SECRET) throw Object.assign(new Error('Adding mailboxes isn’t set up on the server yet (ZOHO_WEB_CLIENT_ID / ZOHO_WEB_CLIENT_SECRET).'), { status: 503, code: 'web_not_configured' });
     if (!/^[A-Za-z0-9_-]{16,128}$/.test(String(state || ''))) throw Object.assign(new Error('Bad request'), { status: 400 });
-    const u = new URL('https://accounts.zoho.com/oauth/v2/auth');
+    // Start at the client's home data centre; Zoho sends each account on to its own region.
+    const u = new URL(`${ACCOUNTS()}/oauth/v2/auth`);
     u.search = new URLSearchParams({ scope: SCOPES, client_id: env().ZOHO_WEB_CLIENT_ID, response_type: 'code', access_type: 'offline', prompt: 'consent', redirect_uri: redirectUri(redirect), state }).toString();
     return { url: u.href };
   },

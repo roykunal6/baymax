@@ -191,7 +191,7 @@ test('add a second mailbox (another company, Australian data centre) and use it'
   try {
     let r = await (await call({ action: 'addStart', state: 'abcdefghijklmnop1234' })).json();
     const u = new URL(r.url);
-    assert.equal(u.host, 'accounts.zoho.com');
+    assert.equal(u.host, 'accounts.zoho.in');
     assert.equal(u.searchParams.get('state'), 'abcdefghijklmnop1234');
     assert.equal(u.searchParams.get('access_type'), 'offline');
     assert.equal(u.searchParams.get('redirect_uri'), 'https://mybaymax.netlify.app/api/mail/callback');
