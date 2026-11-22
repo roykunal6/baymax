@@ -237,7 +237,7 @@ test('OAuth callback hands the code to the app in the fragment only', async () =
   const r = await cb(new Request('https://mybaymax.netlify.app/api/mail/callback?code=1000.abc&state=xyz&accounts-server=https%3A%2F%2Faccounts.zoho.com.au&location=au&junk=1'));
   assert.equal(r.status, 302);
   const loc = r.headers.get('location');
-  assert.ok(loc.startsWith('/#zoho-callback='));
+  assert.ok(loc.startsWith('https://mybaymax.netlify.app/#zoho-callback='), 'absolute, so the host adds no query string');
   const q = new URLSearchParams(decodeURIComponent(loc.split('=').slice(1).join('=')));
   assert.deepEqual([q.get('code'), q.get('state'), q.get('accounts-server'), q.get('junk')], ['1000.abc', 'xyz', 'https://accounts.zoho.com.au', null]);
 });
