@@ -39,12 +39,24 @@ function collect(query, since) {
     threads.forEach(function (thread) {
       thread.getMessages().forEach(function (m) {
         if (m.getDate().getTime() < since) return;
-        messages.push({ id: m.getId(), from: m.getFrom(), subject: m.getSubject(), body: m.getPlainBody().slice(0, 4000), date: m.getDate().toISOString() });
+        messages.push({ id: m.getId(), from: m.getFrom(), subject: m.getSubject(), body: readableText(m).slice(0, 4000), date: m.getDate().toISOString() });
       });
     });
     if (threads.length < 100) break;
   }
   return messages;
+}
+
+/** The words of an email without its styling code (some banks put pages of CSS before the details). */
+function readableText(m) {
+  const html = m.getBody() || '';
+  const text = html
+    .replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<br\s*\/?>|<\/(p|div|tr|td|th|li|h\d)>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/[ \t]+/g, ' ').replace(/\s*\n\s*/g, '\n').trim();
+  return text || m.getPlainBody();
 }
 
 /** Send to Baymax in batches. Returns false if Baymax refused (wrong secret, server down). */
