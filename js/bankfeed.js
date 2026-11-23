@@ -51,7 +51,7 @@ export function planBankItems(fin, items, now = new Date(), { statement = false 
       const refund = /refund|revers|cashback/i.test(t.text || '');
       const dupCredit = statement && (fin.credits || []).find((x) => near(x.amount, t.amount, 0.01) && Math.abs(daysBetween(parseDay(x.date), d)) <= 1);
       if (dupCredit) { out.skipped.push({ t, why: 'already recorded from your bank alerts' }); continue; }
-      out.credits.push({ id: sid, amount: t.amount, from: t.merchant || t.bank || 'Bank', kind: refund ? 'refund' : 'income', date: t.date, method: card ? card.id : t.channel === 'upi' ? 'upi' : 'bank', source: statement ? 'statement' : 'email' });
+      out.credits.push({ id: sid, amount: t.amount, from: t.merchant || t.bank || 'Bank', kind: refund ? 'refund' : 'income', date: t.date, method: card ? card.id : t.channel === 'upi' ? 'upi' : 'bank', source: statement ? 'statement' : 'email', ...(t.bank ? { bank: t.bank } : {}), ...(t.last4 ? { last4: t.last4 } : {}) });
       continue;
     }
 
@@ -85,6 +85,7 @@ export function planBankItems(fin, items, now = new Date(), { statement = false 
       id: sid, amount: t.amount, note: label, category: t.channel === 'atm' ? 'Other' : guessCategory(`${t.merchant} ${t.text}`),
       method: card ? card.id : t.channel === 'upi' ? 'upi' : /card/.test(t.channel) ? 'bank' : 'bank',
       date: t.date || ymd(now), source: statement ? 'statement' : 'email',
+      ...(t.bank ? { bank: t.bank } : {}), ...(t.last4 ? { last4: t.last4 } : {}),
     });
   }
   return out;

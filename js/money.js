@@ -12,6 +12,7 @@ import { openSheet } from './sheet.js';
 import { parseHoldings, mergeHoldings, portfolioSummary, uploadDue } from './zerodha.js';
 import { readTable } from './statement.js';
 import { ordinal } from './money-actions.js';
+import { fireCard, openFireSheet } from './fire.js';
 
 const fin = () => state.finance;
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -319,6 +320,7 @@ function invest() {
   })() : '';
   const pnlCls = s.pnl >= 0 ? 'good' : 'bad';
   return `
+    ${fireCard()}
     <div class="card status-card ${due ? 'warn' : 'good'}">
       <div class="card-head"><h3>Zerodha portfolio</h3><span class="pill ${due ? 'warn' : 'good'}">${due ? 'Upload due' : 'Up to date'}</span></div>
       <p class="hint" style="margin:0 0 12px">${last ? `Last upload ${last.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}.` : 'No holdings uploaded yet.'} Upload every Sunday: Zerodha Console → Portfolio → Holdings → Download (Equity, then Mutual funds).</p>
@@ -449,6 +451,7 @@ export function handleMoneyAction(t, rerender = () => {}) {
   const id = t.dataset.id;
   switch (act) {
     case 'add-spend': return spendForm();
+    case 'fire-edit': return openFireSheet(rerender);
     case 'add-due': return dueForm();
     case 'add-invoice': return invoiceForm();
     case 'add-card': return cardForm();

@@ -23,7 +23,7 @@ export const COLLECTIONS = {
 /** Single objects that sync as one row each. */
 export const DOCS = {
   money: {
-    get: (s) => ({ income: s.finance.income, budget: s.finance.budget, categoryBudgets: s.finance.categoryBudgets, remindDays: s.finance.remindDays, zerodha: s.finance.zerodha }),
+    get: (s) => ({ income: s.finance.income, budget: s.finance.budget, categoryBudgets: s.finance.categoryBudgets, remindDays: s.finance.remindDays, zerodha: s.finance.zerodha, gmailImportV: s.finance.gmailImportV, fire: s.finance.fire }),
     set: (s, v) => { Object.assign(s.finance, v); },
   },
   profile: { get: (s) => ({ name: s.settings.name }), set: (s, v) => { if (v && 'name' in v) s.settings.name = v.name; } },

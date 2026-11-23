@@ -24,7 +24,8 @@ import { cloud } from './cloud.js';
 import { createSync, resetSyncMeta } from './sync.js';
 import { cipherFor, signOut, renderSecurity } from './gate.js';
 import { startMailTasks, checkMailForTasks, setMailTasksOn, lastMailCheck, previewMailTasks } from './mailtasks.js';
-import { openMessage, finishMailboxAdd } from './mail.js';
+import { openMessage, finishMailboxAdd, loadMailboxes } from './mail.js';
+import { importFromLink } from './fire.js';
 import { planBankItems } from './bankfeed.js';
 import { uploadDue } from './zerodha.js';
 import { setPaid } from './store.js';
@@ -344,7 +345,13 @@ $('#task-list').addEventListener('click', (e) => {
   if (e.target.closest('.del')) removeTask(li.dataset.id);
   if (e.target.closest('.open-mail')) {
     const t = state.tasks.find((x) => x.id === li.dataset.id);
-    if (t?.source) openMessage({ messageId: t.source.messageId, folderId: t.source.folderId, subject: t.source.subject, mailbox: t.source.mailbox || 'primary', mailboxEmail: t.source.mailboxEmail });
+    if (t?.source) {
+      // Find the mailbox by its address (it may have been reconnected under a new id).
+      loadMailboxes().then((boxes) => {
+        const box = boxes.find((b) => b.email && b.email === t.source.mailboxEmail) || boxes.find((b) => b.id === t.source.mailbox) || boxes[0];
+        openMessage({ messageId: t.source.messageId, folderId: t.source.folderId, subject: t.source.subject, mailbox: box?.id || 'primary', mailboxEmail: box?.email || t.source.mailboxEmail });
+      }).catch((err) => toast(err.message));
+    }
   }
 });
 const MAIL_KIND = { call: 'Call request', followup: 'They followed up', deadline: 'Deadline / reminder', reply: 'Awaiting your reply' };
@@ -783,13 +790,40 @@ function startCloudSync() {
   renderSecurity($('#security'), toast);
   startMailTasks(toast);
   renderMailTasksSetting();
+  // One-time set-up links (#import=…): FIRE goal and tasks, decrypted into your encrypted data.
+  if (location.hash.startsWith('#import=')) {
+    try {
+      const b64 = location.hash.slice(8).replace(/-/g, '+').replace(/_/g, '/');
+      const payload = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))));
+      const r = importFromLink(payload);
+      toast(`Imported${r.fire ? ' your FIRE goal' : ''}${r.fire && r.tasks ? ' and' : ''}${r.tasks ? ` ${r.tasks} task${r.tasks > 1 ? 's' : ''}` : ''}`);
+      renderAll();
+    } catch { toast('That import link didn’t work.'); }
+    history.replaceState(null, '', `${location.pathname}#home`);
+  }
   // Back from Zoho after "Add mailbox".
   finishMailboxAdd().then((handled) => { if (handled) showView('mail'); }).catch((e) => toast(e.message));
 }
 
 // ---------------------------------------------------------------- bank alerts → spends
 let processingBank = false;
+/** One time: remove spends/credits from the first Gmail import (all accounts), so they can be
+ *  imported again with only your own accounts. Hand-entered and statement items are untouched. */
+function resetFirstGmailImport() {
+  const f = state.finance;
+  if (f.gmailImportV >= 2) return;
+  const fromGmail = (x) => String(x.id || '').startsWith('bank-gm-');
+  const before = f.spends.length + (f.credits || []).length;
+  f.spends = f.spends.filter((x) => !fromGmail(x));
+  f.credits = (f.credits || []).filter((x) => !fromGmail(x));
+  f.gmailImportV = 2;
+  save();
+  const n = before - f.spends.length - f.credits.length;
+  if (n) toast(`Cleared ${n} bank items imported from all accounts; re-importing your 4 accounts only`);
+}
+
 function processBankInbox() {
+  resetFirstGmailImport();
   const items = state.finance.bankInbox || [];
   if (!items.length || processingBank) return;
   processingBank = true;
