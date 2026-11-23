@@ -64,3 +64,18 @@ test('Console Excel with Equity, Mutual Funds and Combined sheets (different col
   assert.equal(Math.round(dsp.pnl), 204249);
   assert.equal(Math.round(h.find((x) => x.symbol === 'SBIN').value), 32415);
 });
+
+test('two accounts uploaded together stay separate; a later upload replaces per account', async () => {
+  const { clientIdOf, clientIdFromName, byOwner } = await import('../js/zerodha.js');
+  const head = [null, 'Symbol', 'ISIN', 'Instrument Type', 'Quantity Available', 'Quantity Discrepant', 'Quantity Pledged (Margin)', 'Quantity Pledged (Loan)', 'Average Price', 'Previous Closing Price', 'Unrealized P&L', 'Unrealized P&L Pct.'];
+  const file = (id, qty) => [[null, 'Client ID', id], [null, 'Mutual Funds Holdings Statement'], head,
+    [null, 'KOTAK FLEXI CAP FUND - DIRECT PLAN', 'INF174K01LS2', 'Equity - Flexi Cap', qty, 0, 0, 0, 60, 100, qty * 40, 66]];
+  assert.equal(clientIdOf(file('GU0001', 1)), 'GU0001');
+  assert.equal(clientIdFromName('holdings-GJ0002.xlsx'), 'GJ0002');
+  const a = parseHoldings(file('GU0001', 100)), b = parseHoldings(file('GJ0002', 50));
+  let all = mergeHoldings([{ id: 'zh-old', type: 'mf', value: 1 }], [...a, ...b]);
+  assert.equal(all.length, 2, 'same fund in both accounts kept twice; old owner-less upload replaced');
+  assert.deepEqual(byOwner(all).map((o) => [o.owner, o.value]), [['GU0001', 10000], ['GJ0002', 5000]]);
+  all = mergeHoldings(all, parseHoldings(file('GU0001', 200)));
+  assert.deepEqual(byOwner(all).map((o) => [o.owner, o.value]), [['GU0001', 20000], ['GJ0002', 5000]], 'one account re-uploaded, the other kept');
+});

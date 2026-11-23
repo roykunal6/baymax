@@ -9,7 +9,7 @@ import {
   daysBetween, startOfDay, guessCategory, monthKey,
 } from './finance.js';
 import { openSheet } from './sheet.js';
-import { parseHoldings, mergeHoldings, portfolioSummary, uploadDue } from './zerodha.js';
+import { parseHoldings, mergeHoldings, portfolioSummary, uploadDue, clientIdOf, clientIdFromName, byOwner } from './zerodha.js';
 import { readTable } from './statement.js';
 import { ordinal } from './money-actions.js';
 import { fireCard, openFireSheet } from './fire.js';
@@ -272,7 +272,8 @@ function spends() {
       <div class="group-label"><span>${parseDay(day).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}</span><span class="num">${inr(items.reduce((a, x) => a + x.amount, 0))}</span></div>
       <ul class="rows">${items.map((x) => `<li class="row tap" data-act="edit-spend" data-id="${x.id}">
         <div class="grow"><div class="title">${esc(x.note || x.category)}</div><div class="meta">${esc(x.category)} · ${esc(methodLabel(x.method))}</div></div>
-        <div class="amount">${inr(x.amount)}</div></li>`).join('')}</ul>`).join('') : '<p class="empty">No spends here yet.</p>'}`;
+        <div class="amount">${inr(x.amount)}</div></li>`).join('')}</ul>`).join('') : '<p class="empty">No spends here yet.</p>'}
+    ${list.length || (fin().credits || []).some((x) => String(x.date).startsWith(mk)) ? `<button class="btn small danger" style="margin-top:16px" data-act="clear-month" data-month="${mk}" data-label="Delete all spends for ${ref.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}">Delete all spends for ${ref.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</button>` : ''}`;
 }
 
 function dues() {
@@ -338,10 +339,11 @@ function invest() {
       <div class="legend"><span>Stocks ${inr(s.equity.value, { compact: true })} (${Math.round((s.equity.value / s.value) * 100)}%)</span><span>Funds ${inr(s.mf.value, { compact: true })} (${Math.round((s.mf.value / s.value) * 100)}%)</span></div>` : ''}
       ${spark ? `<div style="margin-top:12px">${spark}<div class="legend"><span>Value over your last ${hist.length} uploads</span></div></div>` : ''}
     </div>
+    ${(() => { const per = byOwner(holdings); const nm = f.zerodha?.names || {}; return per.length > 1 || per[0]?.owner ? `<div class="card"><h3>By account</h3><ul class="rows flat">${per.map((o) => `<li class="row"><div class="grow"><div class="title">${esc(nm[o.owner] || o.owner || 'Earlier upload')}</div><div class="meta">${o.owner ? `${esc(o.owner)} · ` : ''}${o.count} holdings · invested ${inr(o.invested, { compact: true })}</div></div><div class="right"><div class="amount">${inr(o.value, { compact: true })}</div><div class="meta" style="color:var(--${o.pnl >= 0 ? 'good' : 'bad'});font-weight:650">${o.pnl >= 0 ? '+' : '−'}${inr(Math.abs(o.pnl), { compact: true }).replace('−', '')}</div></div></li>`).join('')}</ul></div>` : ''; })()}
     <div class="group-label"><span>Holdings</span><span>${holdings.length}</span></div>
     <ul class="rows">${holdings.slice(0, 60).map((x) => `<li class="row">
       <span class="kind ${x.type === 'mf' ? 'sip' : 'bill'}">${x.type === 'mf' ? 'FUND' : 'STOCK'}</span>
-      <div class="grow"><div class="title">${esc(x.symbol)}</div><div class="meta">${x.qty} × ${inr(x.avg)} → ${inr(x.price)}</div></div>
+      <div class="grow"><div class="title">${esc(x.symbol)}</div><div class="meta">${x.owner && f.zerodha?.names?.[x.owner] ? `<span class="box-tag">${esc(f.zerodha.names[x.owner])}</span> ` : ''}${x.qty} × ${inr(x.avg)} → ${inr(x.price)}</div></div>
       <div class="right"><div class="amount">${inr(x.value)}</div><div class="meta" style="color:var(--${x.pnl >= 0 ? 'good' : 'bad'});font-weight:650">${x.pnl >= 0 ? '+' : '−'}${inr(Math.abs(x.pnl)).replace('−', '')}</div></div></li>`).join('')}</ul>` : ''}
     <div class="group-label"><span>SIPs</span><span class="num">${inr(sipTotal)}/month</span></div>
     ${sips.length ? `<ul class="rows">${sips.map((o) => `<li class="row tap" data-act="edit-ob" data-id="${o.id}"><span class="kind sip">SIP</span><div class="grow"><div class="title">${esc(o.name)}</div><div class="meta">${o.schedule.type === 'monthly' ? `Every month on the ${ordinal(o.schedule.day)}` : 'One time'}</div></div><div class="amount">${inr(o.amount)}</div></li>`).join('')}</ul>`
@@ -351,9 +353,25 @@ function invest() {
 /** Read one or more Zerodha files and update holdings. */
 export async function uploadHoldings(files) {
   let uploaded = [];
-  for (const file of files) uploaded = uploaded.concat(parseHoldings(await readTable(file)));
-  if (!uploaded.length) throw new Error('No holdings found. Use Zerodha Console → Portfolio → Holdings → Download.');
   const f = fin();
+  f.zerodha = { ...(f.zerodha || {}) };
+  const names = { ...(f.zerodha.names || {}) };
+  for (const file of files) {
+    const rows = await readTable(file);
+    const owner = clientIdOf(rows) || clientIdFromName(file.name);
+    if (owner && !names[owner]) {
+      const n = typeof prompt === 'function' ? prompt(`Whose Zerodha account is ${owner}? (e.g. Kunal, Anmol)`, '') : '';
+      names[owner] = (n || owner).trim().slice(0, 30);
+    }
+    uploaded = uploaded.concat(parseHoldings(rows, { owner }));
+  }
+  if (!uploaded.length) throw new Error('No holdings found. Use Zerodha Console → Portfolio → Holdings → Download.');
+  f.zerodha.names = names;
+  // FIRE: holdings uploaded for someone now count live, so drop a fixed "<name> … Zerodha" amount for them.
+  if (f.fire?.assets) {
+    const uploadedNames = [...new Set(uploaded.map((h) => names[h.owner]).filter(Boolean))].map((n) => n.toLowerCase());
+    f.fire.assets = f.fire.assets.filter((a) => !(/zerodha/i.test(a.name) && uploadedNames.some((n) => a.name.toLowerCase().includes(n))));
+  }
   f.holdings = mergeHoldings(f.holdings, uploaded);
   const s = portfolioSummary(f.holdings);
   f.zerodha = { ...(f.zerodha || {}), lastUpload: new Date().toISOString() };
@@ -450,6 +468,18 @@ export function handleMoneyAction(t, rerender = () => {}) {
   const act = t.dataset.act;
   const id = t.dataset.id;
   switch (act) {
+    case 'clear-month': {
+      if (t.dataset.armed !== '1') { t.dataset.armed = '1'; t.textContent = 'Tap again to delete'; setTimeout(() => { t.dataset.armed = ''; t.textContent = t.dataset.label; }, 3500); return; }
+      const mk = t.dataset.month;
+      const f = fin();
+      const before = f.spends.length + (f.credits || []).length;
+      f.spends = f.spends.filter((x) => !String(x.date).startsWith(mk));
+      f.credits = (f.credits || []).filter((x) => !String(x.date).startsWith(mk));
+      if (f.statementUploads) { const { [mk]: _gone, ...rest } = f.statementUploads; f.statementUploads = rest; }
+      save();
+      toast(`Deleted ${before - f.spends.length - f.credits.length} spends and money-in entries for ${mk}`);
+      return rerender();
+    }
     case 'add-spend': return spendForm();
     case 'fire-edit': return openFireSheet(rerender);
     case 'add-due': return dueForm();

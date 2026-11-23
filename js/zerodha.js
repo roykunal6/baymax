@@ -32,10 +32,11 @@ function headerOf(row) {
  * Console's Excel has several sheets (Equity, Mutual Funds, Combined) with different column orders,
  * so every header row found starts a new layout; holdings repeated on the Combined sheet are skipped.
  */
-export function parseHoldings(rows) {
+export function parseHoldings(rows, { owner = '' } = {}) {
   const out = [];
   const seen = new Set();
   let h = null;
+  owner = owner || clientIdOf(rows);
   for (const r of rows) {
     const head = headerOf(r);
     if (head) { h = head; continue; }
@@ -58,10 +59,10 @@ export function parseHoldings(rows) {
       : itype && itype !== '-' ? 'mf'
       : /^INF/i.test(isin) && !/bees\b|etf\b/i.test(symbol) || /\b(fund|plan|growth|direct|idcw|scheme)\b/i.test(symbol) ? 'mf' : 'equity';
     const round = (x) => Math.round(x * 100) / 100;
-    const id = `zh-${(isin || symbol).replace(/[^\w-]/g, '')}`;
+    const id = `zh-${owner ? `${owner}-` : ''}${(isin || symbol).replace(/[^\w-]/g, '')}`;
     if (seen.has(id)) continue;
     seen.add(id);
-    out.push({ id, symbol, isin, type, qty, avg: round(avg), price: round(price), invested: round(invested), value: round(value), pnl: round(pnl) });
+    out.push({ id, ...(owner ? { owner } : {}), symbol, isin, type, qty, avg: round(avg), price: round(price), invested: round(invested), value: round(value), pnl: round(pnl) });
   }
   return out;
 }
@@ -71,8 +72,39 @@ export function parseHoldings(rows) {
  * it contains (an equity file replaces stocks, a fund file replaces funds), so stocks you sold disappear.
  */
 export function mergeHoldings(current, uploaded) {
+  const owners = new Set(uploaded.map((h) => h.owner).filter(Boolean));
+  if (owners.size) {
+    // Per account: an upload replaces everything held in the accounts it covers (and older
+    // uploads that had no account on them).
+    return [...(current || []).filter((h) => h.owner && !owners.has(h.owner)), ...uploaded];
+  }
   const types = new Set(uploaded.map((h) => h.type));
   return [...(current || []).filter((h) => !types.has(h.type)), ...uploaded];
+}
+
+/** The Zerodha client ID in a Console file ("Client ID | GU1234"), or ''. */
+export function clientIdOf(rows) {
+  for (const r of (rows || []).slice(0, 15)) {
+    const cells = (r || []).map((c) => String(c ?? '').trim());
+    const i = cells.findIndex((c) => /^client id$/i.test(c));
+    if (i >= 0 && /^[A-Z]{2,3}\d{3,5}$/i.test(cells[i + 1] || '')) return cells[i + 1].toUpperCase();
+  }
+  return '';
+}
+
+/** Client ID from a file name like "holdings-GU1234.xlsx", or ''. */
+export const clientIdFromName = (name) => (String(name || '').match(/\b([A-Z]{2,3}\d{3,5})\b/i)?.[1] || '').toUpperCase();
+
+/** Totals per account: [{owner, value, invested, pnl, count}] */
+export function byOwner(holdings) {
+  const m = new Map();
+  for (const h of holdings || []) {
+    const k = h.owner || '';
+    const o = m.get(k) || { owner: k, value: 0, invested: 0, pnl: 0, count: 0 };
+    o.value += Number(h.value) || 0; o.invested += Number(h.invested) || 0; o.pnl += Number(h.pnl) || 0; o.count++;
+    m.set(k, o);
+  }
+  return [...m.values()].sort((a, b) => b.value - a.value);
 }
 
 export function portfolioSummary(holdings) {
