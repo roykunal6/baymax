@@ -151,3 +151,58 @@ export function importFromLink(payload, { addTask } = {}) {
   save();
   return out;
 }
+
+// ---------------------------------------------------------------- full FIRE tab
+function chartSVG(series, target, boostYear) {
+  const w = 640, h = 240, l = 46, r = 12, t = 14, b = 26;
+  const years = series[0].points.map((p) => p.year);
+  const maxV = Math.max(target * 1.15, ...series.flatMap((s) => s.points.map((p) => p.value)));
+  const x = (i) => l + (i / Math.max(1, years.length - 1)) * (w - l - r);
+  const y = (v) => t + (1 - v / maxV) * (h - t - b);
+  const path = (pts) => pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * maxV);
+  const every = Math.ceil(years.length / 8);
+  const bi = years.indexOf(boostYear);
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" role="img" aria-label="Projected corpus by year">
+    ${ticks.map((v) => `<line x1="${l}" x2="${w - r}" y1="${y(v)}" y2="${y(v)}" class="grid"/><text x="${l - 6}" y="${y(v) + 4}" text-anchor="end" class="axis">${v >= 1e7 ? (v / 1e7).toFixed(0) + ' Cr' : (v / 1e5).toFixed(0) + 'L'}</text>`).join('')}
+    ${years.map((yr, i) => (i % every === 0 || i === years.length - 1 ? `<text x="${x(i)}" y="${h - 6}" text-anchor="middle" class="axis">${yr}</text>` : '')).join('')}
+    ${bi > 0 ? `<line x1="${x(bi)}" x2="${x(bi)}" y1="${t}" y2="${h - b}" class="boost"/><text x="${x(bi) + 4}" y="${t + 10}" class="axis">loan ends</text>` : ''}
+    <line x1="${l}" x2="${w - r}" y1="${y(target)}" y2="${y(target)}" class="target"/><text x="${w - r}" y="${y(target) - 5}" text-anchor="end" class="axis tgt">🏁 ${(target / 1e7).toFixed(target % 1e7 ? 1 : 0)} Cr</text>
+    ${series.map((s) => `<path d="${path(s.points)}" class="line ${s.cls}"/>`).join('')}
+  </svg>`;
+}
+
+export function renderFireTab(el) {
+  const f = fireSettings();
+  if (!f?.target) { el.innerHTML = `<div class="page-head"><h1>FIRE</h1></div>${fireCard()}`; return; }
+  const c = fireCorpus();
+  const base = { corpus: c.total, monthly: Number(f.monthly) || 0, ret: Number(f.ret) || 11, boost: Number(f.boost) || 0, boostFrom: f.boostFrom || '' };
+  const flat = project({ ...base, target: f.target });
+  const step = Number(f.stepUp) ? project({ ...base, stepUp: Number(f.stepUp), target: f.target }) : null;
+  const horizon = Math.max(flat.months || 0, step?.months || 0, 120) + 12;
+  const run = (o) => project({ ...base, ...o, target: 0 }).yearly.slice(0, Math.ceil(horizon / 12) + 1);
+  const flatPts = run({}), stepPts = step ? run({ stepUp: Number(f.stepUp) }) : null;
+  const milestones = [0.25, 0.5, 0.75, 1].map((p) => {
+    const a = project({ ...base, target: f.target * p }), s2 = step ? project({ ...base, stepUp: Number(f.stepUp), target: f.target * p }) : null;
+    const done = c.total >= f.target * p;
+    return `<li class="row"><span class="ms ${done ? 'done' : ''}">${p * 100}%</span><div class="grow"><div class="title">${cr(f.target * p)}${p === 1 ? ' 🔥 FIRE' : ''}</div><div class="meta">${done ? 'Reached ✓' : `Today’s pace: ${monthYear(a.date)}${s2 ? ` · with step-up: ${monthYear(s2.date)}` : ''}`}</div></div></li>`;
+  }).join('');
+  const fireTasks = state.tasks.filter((t) => t.id.startsWith('fire-') || /^🔥/.test(t.title));
+  const table = flatPts.filter((_, i) => i % 2 === 0 || i === flatPts.length - 1).map((p) => {
+    const sp = stepPts?.find((x) => x.year === p.year);
+    return `<tr><td>${p.year}</td><td>${cr(p.value)}</td>${stepPts ? `<td>${sp ? cr(sp.value) : ''}</td>` : ''}</tr>`;
+  }).join('');
+  el.innerHTML = `
+    <div class="page-head"><h1>FIRE</h1><button class="btn small" data-act="fire-edit">Edit goal</button></div>
+    ${fireCard()}
+    <div class="card"><div class="card-head"><h3>Projection</h3></div>
+      <div class="chart-legend"><span><i class="lg flat"></i>Today’s pace</span>${step ? `<span><i class="lg step"></i>${f.stepUp}% yearly step-up</span>` : ''}<span><i class="lg tgt"></i>Target</span></div>
+      <div class="fire-chart">${chartSVG([{ points: flatPts, cls: 'flat' }, ...(stepPts ? [{ points: stepPts, cls: 'step' }] : [])], f.target, f.boostFrom ? Number(f.boostFrom.slice(0, 4)) : null)}</div>
+    </div>
+    <div class="card"><h3>Milestones</h3><ul class="rows flat">${milestones}</ul></div>
+    <div class="card"><div class="card-head"><h3>FIRE action items</h3><button class="link" data-act="go-tasks">All tasks</button></div>
+      ${fireTasks.length ? `<ul class="rows flat">${fireTasks.map((t) => `<li class="row ${t.done ? 'done' : ''}"><input type="checkbox" data-act="fire-task" data-id="${esc(t.id)}" ${t.done ? 'checked' : ''} aria-label="Done"><div class="grow"><div class="title">${esc(t.title.replace(/^🔥\s*/, ''))}</div>${t.note ? `<div class="meta">${esc(t.note)}</div>` : ''}</div></li>`).join('')}</ul>` : '<p class="empty">No FIRE action items. Add tasks starting with 🔥 to see them here.</p>'}
+    </div>
+    <div class="card"><h3>Year by year</h3><table class="fire-table"><thead><tr><th>Year</th><th>Today’s pace</th>${stepPts ? `<th>Step-up ${f.stepUp}%</th>` : ''}</tr></thead><tbody>${table}</tbody></table>
+      <p class="hint">Assumes ${base.ret}% a year, compounded monthly${f.boost ? `, plus ${inr(f.boost)}/mo from ${f.boostFrom}` : ''}. Not financial advice.</p></div>`;
+}

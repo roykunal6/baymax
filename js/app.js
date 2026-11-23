@@ -25,7 +25,7 @@ import { createSync, resetSyncMeta } from './sync.js';
 import { cipherFor, signOut, renderSecurity } from './gate.js';
 import { startMailTasks, checkMailForTasks, setMailTasksOn, lastMailCheck, previewMailTasks } from './mailtasks.js';
 import { openMessage, finishMailboxAdd, loadMailboxes } from './mail.js';
-import { importFromLink } from './fire.js';
+import { importFromLink, renderFireTab, openFireSheet } from './fire.js';
 import { planBankItems } from './bankfeed.js';
 import { uploadDue } from './zerodha.js';
 import { setPaid } from './store.js';
@@ -59,6 +59,7 @@ function showView(name, { scroll = true } = {}) {
   if (name === 'chat') { measureComposer(); scrollChat(false); } else if (scroll) window.scrollTo(0, 0);
   if (name === 'home') renderHomeView();
   if (name === 'money') renderMoneyView();
+  if (name === 'fire') renderFireView();
   if (name === 'mail') showMail();
 }
 $$('.tabs button, .more-btn').forEach((b) => b.addEventListener('click', () => showView(b.dataset.view)));
@@ -290,6 +291,15 @@ const homeEl = $('#view-home');
 const moneyEl = $('#view-money');
 function renderHomeView() { if (currentView === 'home') renderHome(homeEl); }
 function renderMoneyView() { if (currentView === 'money') renderMoney(moneyEl); }
+const fireEl = $('#view-fire');
+function renderFireView() { if (currentView === 'fire') renderFireTab(fireEl); }
+fireEl.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-act]');
+  if (!t) return;
+  if (t.dataset.act === 'fire-edit') return openFireSheet(renderFireView);
+  if (t.dataset.act === 'go-tasks') return showView('tasks');
+  if (t.dataset.act === 'fire-task') updateTask(t.dataset.id, { done: t.checked, doneAt: t.checked ? new Date().toISOString() : null });
+});
 setToast((m) => toast(m));
 setImporter(initImport((m) => toast(m)));
 initMail($('#view-mail'), (m) => toast(m));
@@ -748,7 +758,7 @@ function renderAll() {
   renderAvatars(); renderChat(); renderSuggestions(); renderTasks(); renderNotes(); renderRoutines(); renderHabits(); renderSettings(); renderBadges();
   renderHomeView(); renderMoneyView();
 }
-subscribe(() => { renderTasks(); renderNotes(); renderRoutines(); renderHabits(); renderSuggestions(); renderBadges(); renderHomeView(); renderMoneyView(); });
+subscribe(() => { renderFireView(); renderTasks(); renderNotes(); renderRoutines(); renderHabits(); renderSuggestions(); renderBadges(); renderHomeView(); renderMoneyView(); });
 
 /** Change password: on the Supabase account when signed in to the cloud, otherwise on this device. */
 async function changeAccountPassword(current, next) {

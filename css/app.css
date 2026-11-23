@@ -454,3 +454,22 @@ dialog.secure .lock-card > p.muted { text-align: left; margin: -6px 0 2px; }
 .row-mini { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; font-variant-numeric: tabular-nums; }
 .fire-stats { grid-template-columns: 1fr 1fr; }
 .fire-stats .value { white-space: nowrap; overflow: visible; text-overflow: clip; }
+
+.fire-chart svg { display: block; }
+.fire-chart .grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 4; }
+.fire-chart .axis { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.fire-chart .tgt { fill: var(--bad); }
+.fire-chart .target { stroke: var(--bad); stroke-width: 1.5; stroke-dasharray: 6 4; }
+.fire-chart .boost { stroke: #f59e0b; stroke-width: 1; stroke-dasharray: 3 3; }
+.fire-chart .line { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.fire-chart .line.flat { stroke: var(--good); }
+.fire-chart .line.step { stroke: var(--info); stroke-dasharray: 7 4; }
+.chart-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
+.chart-legend .lg { display: inline-block; width: 16px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.lg.flat { background: var(--good); } .lg.step { background: var(--info); } .lg.tgt { background: var(--bad); }
+.ms { min-width: 46px; height: 30px; border-radius: 10px; display: grid; place-items: center; font-weight: 700; font-size: 13px; background: var(--surface-2); color: var(--muted); }
+.ms.done { background: var(--good); color: #fff; }
+.fire-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 14px; }
+.fire-table th, .fire-table td { text-align: right; padding: 7px 4px; border-bottom: 1px solid var(--border); }
+.fire-table th:first-child, .fire-table td:first-child { text-align: left; }
+.fire-table th { color: var(--muted); font-weight: 600; font-size: 12px; }
