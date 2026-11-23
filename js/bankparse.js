@@ -87,6 +87,18 @@ export function isTrackedAccount(t, spec) {
   return list.some((a) => a.bank && bank.includes(a.bank));
 }
 
+/**
+ * Money moved between your own accounts (not spending, not income): the other side is you by name
+ * (selfNames, e.g. "kunal roy"), or one of your other accounts' last 4 digits appears in the alert.
+ */
+export function isSelfTransfer(t, { selfNames = '', accounts = '' } = {}) {
+  const text = ` ${String(t.text || '')} ${String(t.merchant || '')} `.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+  const names = String(selfNames).split(',').map((n) => n.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ')).filter((n) => n.length >= 5);
+  if (names.some((n) => text.includes(` ${n} `))) return true;
+  const mine = String(accounts).split(',').map((x) => (x.split(':')[1] || x).replace(/\D/g, '').slice(-4)).filter((x) => x.length === 4 && x !== t.last4);
+  return mine.some((d) => new RegExp(`(?:x|\\*|ending|no|a c|ac|account)\\s*${d}\\b`).test(text));
+}
+
 export function parseAlert(msg) {
   const subject = cleanText(msg.subject);
   const body = cleanText(msg.body);

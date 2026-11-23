@@ -45,6 +45,7 @@ export function planBankItems(fin, items, now = new Date(), { statement = false 
         else out.skipped.push({ t, why: 'card payment' });
         continue;
       }
+      if (t.self) { out.skipped.push({ t, why: 'transfer between your own accounts' }); continue; }
       // Money for an unpaid invoice.
       const inv = fin.invoices.find((i) => !i.paidAt && (i.direction || 'in') === 'in' && near(i.amount, t.amount));
       if (inv) { out.paid.push({ ref: 'invoice', id: inv.id, key: 'once' }); out.messages.push(`Invoice ${inv.party} ${inv.number || ''} marked received.`); }
@@ -74,6 +75,8 @@ export function planBankItems(fin, items, now = new Date(), { statement = false 
       out.messages.push(`${due.name} (${due.kind.toUpperCase()}) marked paid (${t.amount} on ${t.date}).`);
       continue;
     }
+
+    if (t.self) { out.skipped.push({ t, why: 'transfer between your own accounts' }); continue; }
 
     // Probably logged by hand already: same amount within a day.
     // From a statement, alert-logged spends count as duplicates too.

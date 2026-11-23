@@ -69,3 +69,13 @@ test('only your own accounts are kept', async () => {
   assert.equal(isTrackedAccount({ bank: 'ICICI Bank', last4: '' }, spec), true, 'digits not shown, bank on the list');
   assert.equal(isTrackedAccount({ bank: 'Kotak', last4: '1234' }, ''), true, 'no list = keep all');
 });
+
+test('transfers between your own accounts', async () => {
+  const { isSelfTransfer } = await import('../js/bankparse.js');
+  const opts = { selfNames: 'kunal roy,roy kunal', accounts: 'axis:9361,icici:0879,hdfc:7004,bandhan:0816' };
+  assert.equal(isSelfTransfer({ last4: '9361', text: 'INR 70,189 debited from A/c XX9361. Info: IMPS/P2A/123456/KUNAL ROY/ICICI' }, opts), true);
+  assert.equal(isSelfTransfer({ last4: '9361', text: 'INR 5,000 credited to A/c XX9361 from Bandhan Bank A/c XX0816' }, opts), true);
+  assert.equal(isSelfTransfer({ last4: '9361', text: 'INR 634 debited from A/c XX9361. Info: UPI/P2M/1234/ZOMATO' }, opts), false);
+  assert.equal(isSelfTransfer({ last4: '9361', text: 'INR 500 sent to Kunal Mehta via UPI' }, opts), false, 'someone else called Kunal');
+  assert.equal(isSelfTransfer({ last4: '9361', text: 'debited from A/c XX9361' }, opts), false, 'its own number is not a transfer');
+});
