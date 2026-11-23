@@ -69,3 +69,28 @@ test('only your own accounts are kept', async () => {
   assert.equal(isTrackedAccount({ bank: 'ICICI Bank', last4: '' }, spec), true, 'digits not shown, bank on the list');
   assert.equal(isTrackedAccount({ bank: 'Kotak', last4: '1234' }, ''), true, 'no list = keep all');
 });
+
+test('transfers between your own accounts', async () => {
+  const { isSelfTransfer } = await import('../js/bankparse.js');
+  const opts = { selfNames: 'kunal roy,roy kunal', accounts: 'axis:9361,icici:0879,hdfc:7004,bandhan:0816' };
+  assert.equal(isSelfTransfer({ last4: '9361', text: 'INR 70,189 debited from A/c XX9361. Info: IMPS/P2A/123456/KUNAL ROY/ICICI' }, opts), true);
+  assert.equal(isSelfTransfer({ last4: '9361', text: 'INR 5,000 credited to A/c XX9361 from Bandhan Bank A/c XX0816' }, opts), true);
+  assert.equal(isSelfTransfer({ last4: '9361', text: 'INR 634 debited from A/c XX9361. Info: UPI/P2M/1234/ZOMATO' }, opts), false);
+  assert.equal(isSelfTransfer({ last4: '9361', text: 'INR 500 sent to Kunal Mehta via UPI' }, opts), false, 'someone else called Kunal');
+  assert.equal(isSelfTransfer({ last4: '9361', text: 'debited from A/c XX9361' }, opts), false, 'its own number is not a transfer');
+});
+
+test('Axis Bank alert formats (UPI to a shop, UPI to a person, fund transfer)', async () => {
+  const { parseAlert, isSelfTransfer } = await import('../js/bankparse.js');
+  const from = 'Axis Bank Alerts <alerts@axis.bank.in>';
+  const box = (amt, info) => `22-11-2026\nDear Kunal Partha Roy,\nHere's the summary of your transaction:\nAmount Debited:\nINR ${amt}\nAccount Number:\nXX9361\nDate & Time:\n22-11-26, 09:30:50 IST\nTransaction Info:\n${info}`;
+  const a = parseAlert({ id: '1', from, subject: 'Debit alert', body: box('390.00', 'UPI/P2M/669285379627/BLINKIT') });
+  assert.deepEqual([a.amount, a.merchant, a.last4, a.channel, a.date], [390, 'BLINKIT', '9361', 'upi', '2026-11-22']);
+  const b = parseAlert({ id: '2', from, subject: 'Debit alert', body: box('150.00', 'UPI/P2A/669174058520/SUMIT CHOUDHARY') });
+  assert.equal(b.merchant, 'SUMIT CHOUDHARY');
+  const c = parseAlert({ id: '3', from, subject: 'Debit alert', body: 'Dear Kunal Partha Roy,\nWe wish to inform you that your A/c no. XX9361 has been debited with INR 225000.00 on 23-11-2026 15:43:25 IST by MOB/TPFT/PARTHA S ROY/1030.' });
+  assert.deepEqual([c.amount, c.merchant, c.date], [225000, 'PARTHA S ROY', '2026-11-23']);
+  const opts = { selfNames: 'kunal partha roy,kunal roy', accounts: 'axis:9361,icici:0879' };
+  assert.equal(isSelfTransfer(a, opts), false, 'the greeting is not a transfer to yourself');
+  assert.equal(isSelfTransfer(parseAlert({ id: '4', from, subject: 'Debit alert', body: box('5000.00', 'IMPS/P2A/123456/KUNAL PARTHA ROY/HDFC') }), opts), true);
+});

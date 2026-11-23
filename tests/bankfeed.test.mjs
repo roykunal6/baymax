@@ -59,3 +59,18 @@ test('credits: invoice payment, refund, income', () => {
   assert.deepEqual(r.paid, [{ ref: 'invoice', id: 'i1', key: 'once' }]);
   assert.deepEqual(r.credits.map((c) => c.kind), ['income', 'refund']);
 });
+
+test('own-account transfers are skipped, but an EMI paid that way still counts as paid', async () => {
+  const { planBankItems } = await import('../js/bankfeed.js');
+  const fin = { spends: [], credits: [], invoices: [], cards: [], obligations: [{ id: 'emi1', kind: 'emi', name: 'ICICI home loan', amount: 65479, schedule: { type: 'monthly', day: 5 }, payments: {} }] };
+  const now = new Date(2026, 10, 21);
+  const out = planBankItems(fin, [
+    { id: 'a', type: 'debit', amount: 70189, date: '2026-11-19', self: true, text: 'IMPS to KUNAL ROY', channel: 'bank transfer' },
+    { id: 'b', type: 'credit', amount: 5000, date: '2026-11-19', self: true, text: 'from Bandhan A/c XX0816', channel: 'bank transfer' },
+    { id: 'c', type: 'debit', amount: 65479, date: '2026-11-05', self: true, text: 'to ICICI loan XX0879', channel: 'bank transfer' },
+    { id: 'd', type: 'debit', amount: 634, date: '2026-11-21', merchant: 'ZOMATO', text: 'UPI ZOMATO', channel: 'upi' },
+  ], now);
+  assert.deepEqual(out.spends.map((x) => x.amount), [634]);
+  assert.equal(out.credits.length, 0);
+  assert.equal(out.paid.length, 1, 'EMI marked paid');
+});

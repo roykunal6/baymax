@@ -821,15 +821,15 @@ let processingBank = false;
  *  imported again with only your own accounts. Hand-entered and statement items are untouched. */
 function resetFirstGmailImport() {
   const f = state.finance;
-  if (f.gmailImportV >= 2) return;
+  if (f.gmailImportV >= 3) return;
   const fromGmail = (x) => String(x.id || '').startsWith('bank-gm-');
   const before = f.spends.length + (f.credits || []).length;
   f.spends = f.spends.filter((x) => !fromGmail(x));
   f.credits = (f.credits || []).filter((x) => !fromGmail(x));
-  f.gmailImportV = 2;
+  f.gmailImportV = 3;
   save();
   const n = before - f.spends.length - f.credits.length;
-  if (n) toast(`Cleared ${n} bank items imported from all accounts; re-importing your 4 accounts only`);
+  if (n) toast(`Cleared ${n} bank items imported from all accounts; re-importing without transfers between your own accounts`);
 }
 
 function processBankInbox() {

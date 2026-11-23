@@ -51,7 +51,8 @@ const AMOUNT = /(?:₹|\bINR|\bRs\.?)\s?([\d,]+(?:\.\d{1,2})?)/i;
 
 function findMerchant(text) {
   const tries = [
-    /\bUPI\/(?:P2[MA]|DR|CR)?\/?\d*\/?([A-Za-z][\w&.' \-]{1,30}?)(?=\/|\s|[.,;\n]|$)/i,
+    /\bUPI\/(?:P2[MA]|DR|CR)?\/?\d*\/?([A-Za-z][\w&.' \-]{1,40}?)\s*(?=\/|\n|[.,;]|$)/i,
+    /\bby\s+(?:MOB|NET|INB|IB|BRN|ATM)?\/?(?:TPFT|IMPS|NEFT|RTGS|IFT|FT|UPI)\/([A-Za-z][\w&.' \-]{1,40}?)\s*(?=\/|\n|[.,;]|$)/i,
     /\bVPA\s+([\w.\-]+@[\w.\-]+)(?:\s*\(([^)]+)\))?/i,
     /\bto\s+([\w.\-]+@[a-z]+)\b/i,
     /\b(?:at|@)\s+([A-Za-z0-9][\w&.'*\/\- ]{1,40}?)(?=\s+(?:on|dated|via|using|thru|through|ref|for|txn|at)\b|[.,;\n]|$)/i,
@@ -85,6 +86,20 @@ export function isTrackedAccount(t, spec) {
   const bankOk = (b) => !b || bank.includes(b);
   if (t.last4) return list.some((a) => a.last4 === t.last4 && bankOk(a.bank));
   return list.some((a) => a.bank && bank.includes(a.bank));
+}
+
+/**
+ * Money moved between your own accounts (not spending, not income): the other side is you by name
+ * (selfNames, e.g. "kunal roy"), or one of your other accounts' last 4 digits appears in the alert.
+ */
+export function isSelfTransfer(t, { selfNames = '', accounts = '' } = {}) {
+  // Banks greet you by name ("Dear Kunal …,"); that isn't the other side of the payment.
+  const raw = String(t.text || '').replace(/\b(dear|hi|hello)\s+[^,\n]{2,60}[,\n]/gi, ' ');
+  const text = ` ${raw} ${String(t.merchant || '')} `.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+  const names = String(selfNames).split(',').map((n) => n.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ')).filter((n) => n.length >= 5);
+  if (names.some((n) => text.includes(` ${n} `))) return true;
+  const mine = String(accounts).split(',').map((x) => (x.split(':')[1] || x).replace(/\D/g, '').slice(-4)).filter((x) => x.length === 4 && x !== t.last4);
+  return mine.some((d) => new RegExp(`(?:x|\\*|ending|no|a c|ac|account)\\s*${d}\\b`).test(text));
 }
 
 export function parseAlert(msg) {

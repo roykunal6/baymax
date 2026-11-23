@@ -11,9 +11,10 @@
 //   SUPABASE_SERVICE_ROLE_KEY  server-only key (never in the app)
 //   BAYMAX_USER_ID             the Supabase user id whose data this is
 //   TRACKED_ACCOUNTS           optional, e.g. "axis:1234,hdfc:5678": only these accounts/cards are kept
+//   SELF_NAMES                 optional, e.g. "kunal roy,roy kunal": transfers to/from you aren't spends or income
 
 import { timingSafeEqual } from 'node:crypto';
-import { parseAlert, isTrackedAccount } from '../../js/bankparse.js';
+import { parseAlert, isTrackedAccount, isSelfTransfer } from '../../js/bankparse.js';
 import { sealForPublicKey } from '../../js/vault.js';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -35,7 +36,8 @@ export default async (req) => {
   try { body = await req.json(); } catch { return json(400, { error: 'Send JSON' }); }
   const messages = Array.isArray(body?.messages) ? body.messages.slice(0, 200) : [];
   const parsed = messages.map((m) => { try { return parseAlert(m); } catch { return null; } }).filter(Boolean);
-  const txns = parsed.filter((t) => isTrackedAccount(t, env.TRACKED_ACCOUNTS));
+  const txns = parsed.filter((t) => isTrackedAccount(t, env.TRACKED_ACCOUNTS))
+    .map((t) => (isSelfTransfer(t, { selfNames: env.SELF_NAMES, accounts: env.TRACKED_ACCOUNTS }) ? { ...t, self: true } : t));
   const ignored = parsed.length - txns.length;
   if (!txns.length) return json(200, { received: messages.length, transactions: 0, ignored });
 
