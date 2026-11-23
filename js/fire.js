@@ -5,7 +5,7 @@
 
 import { state, save } from './store.js';
 import { inr } from './finance.js';
-import { portfolioSummary } from './zerodha.js';
+import { portfolioSummary, byOwner } from './zerodha.js';
 import { openSheet } from './sheet.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -75,7 +75,7 @@ export function fireCard({ compact = false } = {}) {
     ${goalYear && flat.date && flat.date.getFullYear() > goalYear ? `<p class="hint bad" style="margin:8px 0 0">Behind your ${goalYear} goal at today’s pace${step?.date && step.date.getFullYear() <= goalYear ? ' — the step-up gets you there' : ''}.</p>` : ''}
     ${compact ? '' : `<div class="fire-break">
       <div class="row-mini"><span>Investing every month</span><b>${inr(base.monthly)}</b></div>
-      ${c.zerodha ? `<div class="row-mini"><span>Your Zerodha (live)</span><b>${cr(c.zerodha)}</b></div>` : ''}
+      ${c.zerodha ? byOwner(state.finance.holdings).map((o) => `<div class="row-mini"><span>Zerodha — ${esc(state.finance.zerodha?.names?.[o.owner] || (o.owner || 'yours'))} (live)</span><b>${cr(o.value)}</b></div>`).join('') : ''}
       ${c.others.map((a) => `<div class="row-mini"><span>${esc(a.name)}</span><b>${cr(a.amount)}</b></div>`).join('')}
       ${f.boost ? `<div class="row-mini muted"><span>From ${esc(new Date(f.boostFrom + '-01').toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }))}: +${inr(f.boost)}/mo (loan ends)</span><span></span></div>` : ''}
       <p class="hint" style="margin:6px 0 0">Assumes ${base.ret}% a year. Upload Zerodha every Sunday and this updates itself.</p>
