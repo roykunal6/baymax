@@ -19,6 +19,8 @@ function cardFor(fin, t) {
 
 const CARD_PAYMENT = /\b(credit ?card (bill|payment)|card ?payment|cc ?(bill|payment)|billdesk.*card|cred\b|payment (received|credited) (on|to|towards) your .*card)/i;
 const SELF_TRANSFER = /\b(self|own account|to your .*account|sweep|fd booking|fixed deposit)\b/i;
+// Axis 'FLEXI' (auto-sweep to and from a flexi deposit): your own money moving, never a spend or income.
+const FLEXI = /flexi/i;
 
 /**
  * @param {object} fin state.finance
@@ -36,6 +38,7 @@ export function planBankItems(fin, items, now = new Date(), { statement = false 
     if (existingIds.has(sid)) { out.skipped.push({ t, why: 'already imported' }); continue; }
     const d = parseDay(t.date);
     const card = cardFor(fin, t);
+    if (FLEXI.test(`${t.text || ''} ${t.merchant || ''}`)) { out.skipped.push({ t, why: 'FLEXI deposit sweep (ignored)' }); continue; }
 
     if (t.type === 'credit') {
       // Payment received on a credit card = that card's bill is paid.

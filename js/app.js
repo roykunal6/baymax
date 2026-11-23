@@ -834,8 +834,22 @@ function removeGmailBankItems() {
   if (n) toast(`Removed ${n} spends that came from bank alert emails`);
 }
 
+/** Once (synced): start spends from scratch so November's statement can be imported again. */
+function resetAllSpendsOnce() {
+  const f = state.finance;
+  if (f.spendsResetV >= 1) return;
+  const n = f.spends.length + (f.credits || []).length;
+  f.spends = [];
+  f.credits = [];
+  f.statementUploads = {};
+  f.spendsResetV = 1;
+  save();
+  if (n) toast(`Cleared ${n} spends and money-in entries. Import your November statement to start fresh.`);
+}
+
 function processBankInbox() {
   removeGmailBankItems();
+  resetAllSpendsOnce();
   if (ensureStatementTask(state)) save();
   if (state.finance.gmailImportV >= 100) { if ((state.finance.bankInbox || []).length) { state.finance.bankInbox = []; save(); } return; }
   const items = state.finance.bankInbox || [];

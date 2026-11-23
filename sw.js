@@ -1,5 +1,5 @@
 // Offline cache for the app shell. The AI endpoint (api/) is never cached.
-const CACHE = 'baymax-v15';
+const CACHE = 'baymax-v16';
 const SHELL = [
   './', 'index.html', 'css/app.css', 'icon.svg', 'manifest.webmanifest',
   'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/favicon-32.png',

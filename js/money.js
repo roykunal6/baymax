@@ -272,7 +272,8 @@ function spends() {
       <div class="group-label"><span>${parseDay(day).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}</span><span class="num">${inr(items.reduce((a, x) => a + x.amount, 0))}</span></div>
       <ul class="rows">${items.map((x) => `<li class="row tap" data-act="edit-spend" data-id="${x.id}">
         <div class="grow"><div class="title">${esc(x.note || x.category)}</div><div class="meta">${esc(x.category)} · ${esc(methodLabel(x.method))}</div></div>
-        <div class="amount">${inr(x.amount)}</div></li>`).join('')}</ul>`).join('') : '<p class="empty">No spends here yet.</p>'}`;
+        <div class="amount">${inr(x.amount)}</div></li>`).join('')}</ul>`).join('') : '<p class="empty">No spends here yet.</p>'}
+    ${list.length || (fin().credits || []).some((x) => String(x.date).startsWith(mk)) ? `<button class="btn small danger" style="margin-top:16px" data-act="clear-month" data-month="${mk}" data-label="Delete all spends for ${ref.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}">Delete all spends for ${ref.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</button>` : ''}`;
 }
 
 function dues() {
@@ -450,6 +451,18 @@ export function handleMoneyAction(t, rerender = () => {}) {
   const act = t.dataset.act;
   const id = t.dataset.id;
   switch (act) {
+    case 'clear-month': {
+      if (t.dataset.armed !== '1') { t.dataset.armed = '1'; t.textContent = 'Tap again to delete'; setTimeout(() => { t.dataset.armed = ''; t.textContent = t.dataset.label; }, 3500); return; }
+      const mk = t.dataset.month;
+      const f = fin();
+      const before = f.spends.length + (f.credits || []).length;
+      f.spends = f.spends.filter((x) => !String(x.date).startsWith(mk));
+      f.credits = (f.credits || []).filter((x) => !String(x.date).startsWith(mk));
+      if (f.statementUploads) { const { [mk]: _gone, ...rest } = f.statementUploads; f.statementUploads = rest; }
+      save();
+      toast(`Deleted ${before - f.spends.length - f.credits.length} spends and money-in entries for ${mk}`);
+      return rerender();
+    }
     case 'add-spend': return spendForm();
     case 'fire-edit': return openFireSheet(rerender);
     case 'add-due': return dueForm();

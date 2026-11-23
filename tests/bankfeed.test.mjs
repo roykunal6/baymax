@@ -74,3 +74,16 @@ test('own-account transfers are skipped, but an EMI paid that way still counts a
   assert.equal(out.credits.length, 0);
   assert.equal(out.paid.length, 1, 'EMI marked paid');
 });
+
+test('FLEXI deposit sweeps are ignored', async () => {
+  const { planBankItems } = await import('../js/bankfeed.js');
+  const fin = { spends: [], credits: [], invoices: [], cards: [], obligations: [] };
+  const out = planBankItems(fin, [
+    { id: 'f1', type: 'debit', amount: 100000, date: '2026-11-10', text: 'TRF TO FLEXI DEPOSIT 9234', channel: 'bank' },
+    { id: 'f2', type: 'credit', amount: 50000, date: '2026-11-12', text: 'FLEXI CLOSURE PROCEEDS', channel: 'bank' },
+    { id: 'f3', type: 'debit', amount: 390, date: '2026-11-22', merchant: 'BLINKIT', text: 'UPI/P2M/1/BLINKIT', channel: 'upi' },
+  ], new Date(2026, 10, 23), { statement: true });
+  assert.deepEqual(out.spends.map((x) => x.amount), [390]);
+  assert.equal(out.credits.length, 0);
+  assert.equal(out.skipped.filter((x) => /FLEXI/.test(x.why)).length, 2);
+});
