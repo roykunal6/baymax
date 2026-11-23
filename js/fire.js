@@ -156,11 +156,13 @@ export function importFromLink(payload, { addTask } = {}) {
 function chartSVG(series, target, boostYear) {
   const w = 640, h = 240, l = 46, r = 12, t = 14, b = 26;
   const years = series[0].points.map((p) => p.year);
-  const maxV = Math.max(target * 1.15, ...series.flatMap((s) => s.points.map((p) => p.value)));
+  const rawMax = Math.max(target * 1.15, ...series.flatMap((s) => s.points.map((p) => p.value)));
+  const step = [1e6, 2.5e6, 5e6, 1e7, 2.5e7, 5e7, 1e8].find((u) => rawMax / u <= 6) || 1e8;
+  const maxV = Math.ceil(rawMax / step) * step;
   const x = (i) => l + (i / Math.max(1, years.length - 1)) * (w - l - r);
   const y = (v) => t + (1 - v / maxV) * (h - t - b);
   const path = (pts) => pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * maxV);
+  const ticks = Array.from({ length: Math.round(maxV / step) + 1 }, (_, i) => i * step);
   const every = Math.ceil(years.length / 8);
   const bi = years.indexOf(boostYear);
   return `<svg viewBox="0 0 ${w} ${h}" width="100%" role="img" aria-label="Projected corpus by year">
