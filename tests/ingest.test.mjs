@@ -28,7 +28,7 @@ test('stores parsed transactions, ignores non-transactions, never revives proces
     { id: 'a2', from: 'alerts@hdfcbank.net', subject: 'OTP', body: 'Your OTP for transaction of Rs 500 is 123456' },
   ] });
   assert.equal(r.status, 200);
-  assert.deepEqual(await r.json(), { received: 2, transactions: 1, encrypted: false });
+  assert.deepEqual(await r.json(), { received: 2, transactions: 1, ignored: 0, encrypted: false });
   assert.equal(calls.length, 1);
   assert.match(calls[0].url, /\/rest\/v1\/records\?on_conflict=user_id,coll,id$/);
   assert.match(calls[0].init.headers.prefer, /ignore-duplicates/);
@@ -49,4 +49,19 @@ test('with a keyring, alerts are stored encrypted for the owner only', async () 
   const t = await openJSON(k.keys, row.data);
   assert.deepEqual([t.id, t.amount, t.merchant], ['gm-b1', 450, 'SWIGGY']);
   keyring = null;
+});
+
+test('TRACKED_ACCOUNTS: other accounts are ignored', async () => {
+  process.env.TRACKED_ACCOUNTS = 'hdfc:1234';
+  try {
+    calls.length = 0;
+    const r = await post({ messages: [
+      { id: 't1', from: 'alerts@hdfcbank.net', subject: 'Alert', body: 'Rs.450.00 spent on HDFC Bank Card x1234 at SWIGGY on 2026-11-20' },
+      { id: 't2', from: 'alerts@hdfcbank.net', subject: 'Alert', body: 'Rs.99.00 spent on HDFC Bank Card x9999 at ZOMATO on 2026-11-20' },
+    ] });
+    const out = await r.json();
+    assert.equal(out.transactions, 1);
+    assert.equal(out.ignored, 1);
+    assert.equal(JSON.parse(calls[0].init.body).length, 1);
+  } finally { delete process.env.TRACKED_ACCOUNTS; }
 });

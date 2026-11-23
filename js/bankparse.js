@@ -72,6 +72,21 @@ function findMerchant(text) {
  * @param {{from?: string, subject?: string, body?: string, date?: string|number, id?: string}} msg
  * @returns {null | {id, amount, type: 'debit'|'credit', merchant, last4, channel, bank, date, text}}
  */
+/**
+ * Only your own accounts: spec "axis:9361,icici:0879,hdfc:7004" (bank word : last 4 digits).
+ * An alert matches when its last 4 digits are on the list (and the bank agrees), or, when the email
+ * doesn't show the digits, when it's from a bank on the list. Empty spec = keep everything.
+ */
+export function isTrackedAccount(t, spec) {
+  const list = String(spec || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean)
+    .map((x) => { const [bank, last4] = x.includes(':') ? x.split(':') : ['', x]; return { bank, last4: last4.replace(/\D/g, '').slice(-4) }; });
+  if (!list.length) return true;
+  const bank = String(t.bank || '').toLowerCase();
+  const bankOk = (b) => !b || bank.includes(b);
+  if (t.last4) return list.some((a) => a.last4 === t.last4 && bankOk(a.bank));
+  return list.some((a) => a.bank && bank.includes(a.bank));
+}
+
 export function parseAlert(msg) {
   const subject = cleanText(msg.subject);
   const body = cleanText(msg.body);

@@ -57,3 +57,15 @@ test('ignores things that are not transactions', () => {
   assert.equal(p('Exclusive offer', 'Get cashback offer of Rs 500 on your next purchase. Apply now!'), null);
   assert.equal(p('Hello', 'No money here.'), null);
 });
+
+test('only your own accounts are kept', async () => {
+  const { isTrackedAccount } = await import('../js/bankparse.js');
+  const spec = 'axis:9361,icici:0879,hdfc:7004,bandhan:0816';
+  assert.equal(isTrackedAccount({ bank: 'Axis Bank', last4: '9361' }, spec), true);
+  assert.equal(isTrackedAccount({ bank: 'HDFC Bank', last4: '7004' }, spec), true);
+  assert.equal(isTrackedAccount({ bank: 'HDFC Bank', last4: '1111' }, spec), false, 'another HDFC card');
+  assert.equal(isTrackedAccount({ bank: 'SBI', last4: '9361' }, spec), false, 'same digits, other bank');
+  assert.equal(isTrackedAccount({ bank: 'Kotak', last4: '' }, spec), false);
+  assert.equal(isTrackedAccount({ bank: 'ICICI Bank', last4: '' }, spec), true, 'digits not shown, bank on the list');
+  assert.equal(isTrackedAccount({ bank: 'Kotak', last4: '1234' }, ''), true, 'no list = keep all');
+});

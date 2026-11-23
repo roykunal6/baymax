@@ -10,9 +10,10 @@
 //   SUPABASE_URL               https://<project>.supabase.co
 //   SUPABASE_SERVICE_ROLE_KEY  server-only key (never in the app)
 //   BAYMAX_USER_ID             the Supabase user id whose data this is
+//   TRACKED_ACCOUNTS           optional, e.g. "axis:1234,hdfc:5678": only these accounts/cards are kept
 
 import { timingSafeEqual } from 'node:crypto';
-import { parseAlert } from '../../js/bankparse.js';
+import { parseAlert, isTrackedAccount } from '../../js/bankparse.js';
 import { sealForPublicKey } from '../../js/vault.js';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -33,8 +34,10 @@ export default async (req) => {
   let body;
   try { body = await req.json(); } catch { return json(400, { error: 'Send JSON' }); }
   const messages = Array.isArray(body?.messages) ? body.messages.slice(0, 200) : [];
-  const txns = messages.map((m) => { try { return parseAlert(m); } catch { return null; } }).filter(Boolean);
-  if (!txns.length) return json(200, { received: messages.length, transactions: 0 });
+  const parsed = messages.map((m) => { try { return parseAlert(m); } catch { return null; } }).filter(Boolean);
+  const txns = parsed.filter((t) => isTrackedAccount(t, env.TRACKED_ACCOUNTS));
+  const ignored = parsed.length - txns.length;
+  if (!txns.length) return json(200, { received: messages.length, transactions: 0, ignored });
 
   const sb = { apikey: env.SUPABASE_SERVICE_ROLE_KEY, authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` };
   let publicKey = null;
@@ -59,7 +62,7 @@ export default async (req) => {
     body: JSON.stringify(rows),
   });
   if (!res.ok) return json(502, { error: `Database refused the alerts (${res.status})` });
-  return json(200, { received: messages.length, transactions: txns.length, encrypted: !!publicKey });
+  return json(200, { received: messages.length, transactions: txns.length, ignored, encrypted: !!publicKey });
 };
 
 export const config = { path: '/api/ingest' };

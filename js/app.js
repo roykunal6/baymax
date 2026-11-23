@@ -789,7 +789,23 @@ function startCloudSync() {
 
 // ---------------------------------------------------------------- bank alerts → spends
 let processingBank = false;
+/** One time: remove spends/credits from the first Gmail import (all accounts), so they can be
+ *  imported again with only your own accounts. Hand-entered and statement items are untouched. */
+function resetFirstGmailImport() {
+  const f = state.finance;
+  if (f.gmailImportV >= 2) return;
+  const fromGmail = (x) => String(x.id || '').startsWith('bank-gm-');
+  const before = f.spends.length + (f.credits || []).length;
+  f.spends = f.spends.filter((x) => !fromGmail(x));
+  f.credits = (f.credits || []).filter((x) => !fromGmail(x));
+  f.gmailImportV = 2;
+  save();
+  const n = before - f.spends.length - f.credits.length;
+  if (n) toast(`Cleared ${n} bank items imported from all accounts; re-importing your 4 accounts only`);
+}
+
 function processBankInbox() {
+  resetFirstGmailImport();
   const items = state.finance.bankInbox || [];
   if (!items.length || processingBank) return;
   processingBank = true;
