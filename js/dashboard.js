@@ -9,6 +9,7 @@ import { formatDue } from './timeparse.js';
 import { statusCard, dueRow, categoryBars, alertsList, budgetBar, esc, setMoneySub } from './money.js';
 import { uploadDue } from './zerodha.js';
 import { avatarSVG } from './avatar.js';
+import { fireCard } from './fire.js';
 
 let range = 'day';
 let selDay = null; // YYYY-MM-DD selected in week/month views
@@ -72,6 +73,7 @@ function dayView(now, h) {
   const zDue = uploadDue(z.lastUpload) && (now.getDay() === 0 || !z.lastUpload || now - new Date(z.lastUpload) > 7 * 86400000);
   return `
     ${statusCard(h, { compact: true })}
+    ${fireCard({ compact: true })}
     ${zDue ? `<div class="card status-card warn"><div class="card-head"><h3>📈 Zerodha upload due</h3></div><p class="hint" style="margin:0 0 12px">${z.lastUpload ? 'It’s been a week since your last holdings upload.' : 'Upload your holdings to track your investments here.'}</p><button class="btn block" data-act="go-invest">Upload holdings</button></div>` : ''}
     <div class="card"><div class="card-head"><h3>Today’s tasks</h3><button class="link" data-act="go" data-view="tasks">All tasks</button></div>
       ${tasks.length || undated.length ? `<ul class="rows flat">${tasks.map((t) => taskRow(t, now)).join('')}${undated.map((t) => `<li class="row"><input type="checkbox" aria-label="Mark done" data-act="task-done" data-id="${t.id}"><div class="grow"><div class="title">${esc(t.title)}</div><div class="meta">No due date</div></div></li>`).join('')}</ul>`

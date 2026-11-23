@@ -20,6 +20,8 @@ export const lastMailCheck = () => last();
 function triageState() {
   if (!state.mailTriage) state.mailTriage = { on: false, seen: {} };
   if (!state.mailTriage.seen) state.mailTriage.seen = {};
+  // You asked for it on: switch on once (synced), after that your switch decides.
+  if (!state.mailTriage.v) { state.mailTriage.on = true; state.mailTriage.v = 2; save(); }
   return state.mailTriage;
 }
 

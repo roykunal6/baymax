@@ -440,3 +440,17 @@ dialog.secure .lock-card > p.muted { text-align: left; margin: -6px 0 2px; }
 .box-actions { display: flex; justify-content: flex-end; margin: -4px 0 6px; }
 .box-chips { margin-bottom: 4px; }
 .manage-boxes { margin-bottom: 12px; }
+
+/* FIRE */
+.fire-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin: 2px 0 10px; }
+.fire-now { font-size: 28px; font-weight: 750; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.fire-pct { font-size: 24px; font-weight: 750; color: var(--good); font-variant-numeric: tabular-nums; }
+.fire-bar { position: relative; height: 14px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.fire-bar > span { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #f59e0b, #ef4444 60%, var(--good)); background-size: 300px 100%; transition: width .8s ease; }
+.fire-mark { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--surface); opacity: .9; }
+.fire-scale { display: flex; justify-content: space-between; font-size: 12px; margin: 6px 0 12px; font-variant-numeric: tabular-nums; }
+.fire-stats .value { font-size: 17px; }
+.fire-break { margin-top: 12px; border-top: 1px solid var(--line, rgba(127,127,127,.2)); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.row-mini { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.fire-stats { grid-template-columns: 1fr 1fr; }
+.fire-stats .value { white-space: nowrap; overflow: visible; text-overflow: clip; }

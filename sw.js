@@ -1,10 +1,10 @@
 // Offline cache for the app shell. The AI endpoint (api/) is never cached.
-const CACHE = 'baymax-v11';
+const CACHE = 'baymax-v12';
 const SHELL = [
   './', 'index.html', 'css/app.css', 'icon.svg', 'manifest.webmanifest',
   'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/favicon-32.png',
   'js/app.js', 'js/store.js', 'js/parser.js', 'js/timeparse.js', 'js/actions.js', 'js/routines.js', 'js/scheduler.js',
-  'js/voice.js', 'js/ai.js', 'js/main.js', 'js/auth.js', 'js/config.js', 'js/cloud.js', 'js/sync.js', 'js/bankparse.js', 'js/bankfeed.js', 'js/statement.js', 'js/importui.js', 'js/zerodha.js', 'js/mail.js', 'js/vault.js', 'js/keystore.js', 'js/gate.js', 'js/mailtriage.js', 'js/mailtasks.js', 'vendor/supabase-2.117.2.js', 'js/finance.js', 'js/money.js', 'js/money-actions.js', 'js/dashboard.js', 'js/sheet.js', 'js/avatar.js',
+  'js/voice.js', 'js/ai.js', 'js/main.js', 'js/auth.js', 'js/config.js', 'js/cloud.js', 'js/sync.js', 'js/bankparse.js', 'js/bankfeed.js', 'js/statement.js', 'js/importui.js', 'js/zerodha.js', 'js/mail.js', 'js/vault.js', 'js/keystore.js', 'js/gate.js', 'js/mailtriage.js', 'js/mailtasks.js', 'js/fire.js', 'vendor/supabase-2.117.2.js', 'js/finance.js', 'js/money.js', 'js/money-actions.js', 'js/dashboard.js', 'js/sheet.js', 'js/avatar.js',
 ];
 
 self.addEventListener('install', (e) => {
