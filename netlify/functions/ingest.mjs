@@ -26,6 +26,8 @@ function sameSecret(a, b) {
 
 export default async (req) => {
   if (req.method !== 'POST') return json(405, { error: 'POST only' });
+  // Switched off: spends now come from monthly statement uploads. Set BANK_ALERTS=on to re-enable.
+  if (process.env.BANK_ALERTS !== 'on') return json(410, { error: 'Bank alerts are switched off in Baymax. Delete this Apps Script project or its trigger.' });
   const env = process.env;
   if (!env.INGEST_SECRET || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY || !env.BAYMAX_USER_ID) {
     return json(503, { error: 'Bank alerts are not set up on the server yet' });

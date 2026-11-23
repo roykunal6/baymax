@@ -3,6 +3,7 @@
 import { state, save, setPaid } from './store.js';
 import { readStatementFile, toBankTransactions } from './statement.js';
 import { planBankItems } from './bankfeed.js';
+import { noteStatementImported } from './statements.js';
 import { inr } from './finance.js';
 
 const $ = (s) => document.querySelector(s);
@@ -76,6 +77,7 @@ export function initImport(toast) {
     state.finance.spends.push(...plan.spends);
     state.finance.credits = [...(state.finance.credits || []), ...plan.credits];
     for (const p of plan.paid) setPaid(p.ref, p.id, p.key, true);
+    noteStatementImported(state);
     save();
     toast(`Imported ${plan.spends.length} spends${plan.paid.length ? ` · ${plan.paid.length} payments marked paid` : ''}`);
     dlg.close();

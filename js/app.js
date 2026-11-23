@@ -26,6 +26,7 @@ import { cipherFor, signOut, renderSecurity } from './gate.js';
 import { startMailTasks, checkMailForTasks, setMailTasksOn, lastMailCheck, previewMailTasks } from './mailtasks.js';
 import { openMessage, finishMailboxAdd, loadMailboxes } from './mail.js';
 import { importFromLink, renderFireTab, openFireSheet } from './fire.js';
+import { ensureStatementTask } from './statements.js';
 import { planBankItems } from './bankfeed.js';
 import { uploadDue } from './zerodha.js';
 import { setPaid } from './store.js';
@@ -817,23 +818,26 @@ function startCloudSync() {
 
 // ---------------------------------------------------------------- bank alerts → spends
 let processingBank = false;
-/** One time: remove spends/credits from the first Gmail import (all accounts), so they can be
- *  imported again with only your own accounts. Hand-entered and statement items are untouched. */
-function resetFirstGmailImport() {
+/** Bank alerts from Gmail are switched off: spends come from the statements you upload each month.
+ *  Once (synced): remove everything the Gmail alerts added. Hand-entered and statement items stay. */
+function removeGmailBankItems() {
   const f = state.finance;
-  if (f.gmailImportV >= 3) return;
-  const fromGmail = (x) => String(x.id || '').startsWith('bank-gm-');
+  if (f.gmailImportV >= 100) return;
+  const fromGmail = (x) => String(x.id || '').startsWith('bank-gm-') || x.source === 'email';
   const before = f.spends.length + (f.credits || []).length;
   f.spends = f.spends.filter((x) => !fromGmail(x));
   f.credits = (f.credits || []).filter((x) => !fromGmail(x));
-  f.gmailImportV = 3;
+  f.bankInbox = [];
+  f.gmailImportV = 100;
   save();
   const n = before - f.spends.length - f.credits.length;
-  if (n) toast(`Cleared ${n} bank items imported from all accounts; re-importing without transfers between your own accounts`);
+  if (n) toast(`Removed ${n} spends that came from bank alert emails`);
 }
 
 function processBankInbox() {
-  resetFirstGmailImport();
+  removeGmailBankItems();
+  if (ensureStatementTask(state)) save();
+  if (state.finance.gmailImportV >= 100) { if ((state.finance.bankInbox || []).length) { state.finance.bankInbox = []; save(); } return; }
   const items = state.finance.bankInbox || [];
   if (!items.length || processingBank) return;
   processingBank = true;

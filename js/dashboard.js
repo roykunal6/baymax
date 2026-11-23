@@ -10,6 +10,7 @@ import { statusCard, dueRow, categoryBars, alertsList, budgetBar, esc, setMoneyS
 import { uploadDue } from './zerodha.js';
 import { avatarSVG } from './avatar.js';
 import { fireCard } from './fire.js';
+import { statementDue } from './statements.js';
 
 let range = 'day';
 let selDay = null; // YYYY-MM-DD selected in week/month views
@@ -45,6 +46,14 @@ function habitsCard() {
     }).join('')}</div></div>`;
 }
 
+function stmtCard(now) {
+  const due = statementDue(state.finance, now);
+  if (!due) return '';
+  return `<div class="card status-card warn"><div class="card-head"><h3>🏦 Upload bank statements</h3></div>
+    <p class="hint" style="margin:0 0 12px">Month-end: import your ${esc(due.label)} statements (Axis savings, HDFC credit card, ICICI loan, Bandhan) to log your spends.</p>
+    <button class="btn block" data-act="import-statement">Import statement</button></div>`;
+}
+
 export function renderHome(el) {
   const now = new Date();
   const name = state.settings.name ? `, ${esc(state.settings.name.split(' ')[0])}` : '';
@@ -73,6 +82,7 @@ function dayView(now, h) {
   const zDue = uploadDue(z.lastUpload) && (now.getDay() === 0 || !z.lastUpload || now - new Date(z.lastUpload) > 7 * 86400000);
   return `
     ${statusCard(h, { compact: true })}
+    ${stmtCard(now)}
     ${fireCard({ compact: true })}
     ${zDue ? `<div class="card status-card warn"><div class="card-head"><h3>📈 Zerodha upload due</h3></div><p class="hint" style="margin:0 0 12px">${z.lastUpload ? 'It’s been a week since your last holdings upload.' : 'Upload your holdings to track your investments here.'}</p><button class="btn block" data-act="go-invest">Upload holdings</button></div>` : ''}
     <div class="card"><div class="card-head"><h3>Today’s tasks</h3><button class="link" data-act="go" data-view="tasks">All tasks</button></div>

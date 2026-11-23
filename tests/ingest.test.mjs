@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 process.env.INGEST_SECRET = 'test-secret-123';
+process.env.BANK_ALERTS = 'on';
 process.env.SUPABASE_URL = 'https://proj.supabase.co';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key';
 process.env.BAYMAX_USER_ID = 'user-1';
@@ -64,4 +65,14 @@ test('TRACKED_ACCOUNTS: other accounts are ignored', async () => {
     assert.equal(out.ignored, 1);
     assert.equal(JSON.parse(calls[0].init.body).length, 1);
   } finally { delete process.env.TRACKED_ACCOUNTS; }
+});
+
+test('bank alerts switched off → 410 and nothing stored', async () => {
+  delete process.env.BANK_ALERTS;
+  try {
+    calls.length = 0;
+    const r = await post({ messages: [{ id: 'z', from: 'alerts@hdfcbank.net', subject: 'Alert', body: 'Rs.450.00 spent on HDFC Bank Card x1234 at SWIGGY' }] });
+    assert.equal(r.status, 410);
+    assert.equal(calls.length, 0);
+  } finally { process.env.BANK_ALERTS = 'on'; }
 });
