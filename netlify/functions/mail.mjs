@@ -269,6 +269,14 @@ const actions = {
     reqBox = box;
     Object.assign(C(), { token: data.access_token, keyHash: keyHash(reqKey), exp: Date.now() + (Number(data.expires_in) || 3600) * 1000 });
     box.email = (await account()).email;
+    // The old main connection goes if it's this same mailbox, or if Zoho no longer accepts it.
+    if (await getSecret('zoho_refresh_token')) {
+      reqBox = PRIMARY();
+      let drop = false;
+      try { drop = ((await account()).email || '').toLowerCase() === (box.email || '').toLowerCase(); } catch (e) { drop = e.code === 'not_connected'; }
+      if (drop) { await deleteSecret('zoho_refresh_token'); _resetCache('primary'); }
+      reqBox = box;
+    }
     const boxes = (await loadBoxes()).filter((b) => (b.email || '').toLowerCase() !== (box.email || '').toLowerCase());
     boxes.push(box);
     await saveBoxes(boxes);

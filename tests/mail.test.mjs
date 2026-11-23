@@ -237,7 +237,25 @@ test('OAuth callback hands the code to the app in the fragment only', async () =
   const r = await cb(new Request('https://mybaymax.netlify.app/api/mail/callback?code=1000.abc&state=xyz&accounts-server=https%3A%2F%2Faccounts.zoho.com.au&location=au&junk=1'));
   assert.equal(r.status, 302);
   const loc = r.headers.get('location');
-  assert.ok(loc.startsWith('/#zoho-callback='));
+  assert.ok(loc.startsWith('https://mybaymax.netlify.app/#zoho-callback='), 'absolute, so the host adds no query string');
   const q = new URLSearchParams(decodeURIComponent(loc.split('=').slice(1).join('=')));
   assert.deepEqual([q.get('code'), q.get('state'), q.get('accounts-server'), q.get('junk')], ['1000.abc', 'xyz', 'https://accounts.zoho.com.au', null]);
+});
+
+test('adding the same mailbox again replaces a broken main connection', async () => {
+  process.env.ZOHO_WEB_CLIENT_ID = 'wid'; process.env.ZOHO_WEB_CLIENT_SECRET = 'wsec';
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    const u = new URL(String(url));
+    if (u.host === 'accounts.zoho.in' && u.pathname === '/oauth/v2/token' && init.body?.get?.('grant_type') === 'refresh_token') return new Response(JSON.stringify({ error: 'invalid_client' }));
+    return realFetch(url, init);
+  };
+  try {
+    const r = await (await call({ action: 'addFinish', code: 'au-code', accountsServer: 'https://accounts.zoho.com.au' })).json();
+    assert.ok(r.mailbox.id);
+    assert.equal(secrets.zoho_refresh_token, undefined, 'broken main connection removed');
+    _resetCache();
+    const st = await (await call({ action: 'status' })).json();
+    assert.deepEqual(st.mailboxes.map((m) => m.email), ['digital@koalainvest.com.au']);
+  } finally { globalThis.fetch = realFetch; delete process.env.ZOHO_WEB_CLIENT_ID; delete process.env.ZOHO_WEB_CLIENT_SECRET; }
 });

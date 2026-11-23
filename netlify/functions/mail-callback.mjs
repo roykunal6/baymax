@@ -9,7 +9,7 @@ export default async (req) => {
     const v = u.searchParams.get(k);
     if (v) keep.set(k, v.slice(0, 600));
   }
-  return new Response(null, { status: 302, headers: { location: `/#zoho-callback=${encodeURIComponent(keep.toString())}`, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
+  return new Response(null, { status: 302, headers: { location: `${u.origin}/#zoho-callback=${encodeURIComponent(keep.toString())}`, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
 };
 
 export const config = { path: '/api/mail/callback' };

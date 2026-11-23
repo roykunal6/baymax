@@ -15,24 +15,31 @@ const COL = {
   price: /^(previous closing price|ltp|last price|closing price|current price|nav|last traded price|cmp)$/i,
   value: /^(cur(rent|\.)? ?val(ue)?\.?|present value|market value)$/i,
   pnl: /^(unrealized p&l|unrealised p&l|p&l|pnl|net p&l)$/i,
+  sector: /^sector$/i,
+  itype: /^instrument type$/i,
 };
 
-function findHeader(rows) {
-  for (let r = 0; r < Math.min(rows.length, 40); r++) {
-    const cells = rows[r].map((c) => String(c ?? '').trim());
-    const find = (re) => cells.findIndex((c) => re.test(c));
-    const cols = Object.fromEntries(Object.entries(COL).map(([k, re]) => [k, find(re)]));
-    if (cols.symbol >= 0 && cols.qty >= 0 && (cols.avg >= 0 || cols.value >= 0)) return { row: r, ...cols };
-  }
-  return null;
+/** Column positions if this row is a holdings header, else null. */
+function headerOf(row) {
+  const cells = (row || []).map((c) => String(c ?? '').trim());
+  const find = (re) => cells.findIndex((c) => re.test(c));
+  const cols = Object.fromEntries(Object.entries(COL).map(([k, re]) => [k, find(re)]));
+  return cols.symbol >= 0 && cols.qty >= 0 && (cols.avg >= 0 || cols.value >= 0) ? cols : null;
 }
 
-/** Rows from a Zerodha holdings file → [{id, symbol, isin, type, qty, avg, price, invested, value, pnl}] */
+/**
+ * Rows from a Zerodha holdings file → [{id, symbol, isin, type, qty, avg, price, invested, value, pnl}].
+ * Console's Excel has several sheets (Equity, Mutual Funds, Combined) with different column orders,
+ * so every header row found starts a new layout; holdings repeated on the Combined sheet are skipped.
+ */
 export function parseHoldings(rows) {
-  const h = findHeader(rows);
-  if (!h) return [];
   const out = [];
-  for (const r of rows.slice(h.row + 1)) {
+  const seen = new Set();
+  let h = null;
+  for (const r of rows) {
+    const head = headerOf(r);
+    if (head) { h = head; continue; }
+    if (!h || !Array.isArray(r)) continue;
     const symbol = String(r[h.symbol] ?? '').trim();
     const qty = num(r[h.qty]);
     if (!symbol || !(qty > 0) || /^total/i.test(symbol)) continue;
@@ -44,9 +51,17 @@ export function parseHoldings(rows) {
     if (isNaN(price) && !isNaN(value)) price = value / qty;
     const invested = !isNaN(avg) ? qty * avg : NaN;
     const pnl = h.pnl >= 0 && !isNaN(num(r[h.pnl])) ? num(r[h.pnl]) : value - invested;
-    const type = /^INF/i.test(isin) || /\b(fund|plan|growth|direct|idcw|scheme)\b/i.test(symbol) ? 'mf' : 'equity';
+    // Console says which it is: stocks and ETFs have a Sector, mutual funds an Instrument Type.
+    const cell = (i) => (i >= 0 ? String(r[i] ?? '').trim() : '');
+    const sector = cell(h.sector), itype = cell(h.itype);
+    const type = sector && sector !== '-' ? 'equity'
+      : itype && itype !== '-' ? 'mf'
+      : /^INF/i.test(isin) && !/bees\b|etf\b/i.test(symbol) || /\b(fund|plan|growth|direct|idcw|scheme)\b/i.test(symbol) ? 'mf' : 'equity';
     const round = (x) => Math.round(x * 100) / 100;
-    out.push({ id: `zh-${(isin || symbol).replace(/[^\w-]/g, '')}`, symbol, isin, type, qty, avg: round(avg), price: round(price), invested: round(invested), value: round(value), pnl: round(pnl) });
+    const id = `zh-${(isin || symbol).replace(/[^\w-]/g, '')}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, symbol, isin, type, qty, avg: round(avg), price: round(price), invested: round(invested), value: round(value), pnl: round(pnl) });
   }
   return out;
 }

@@ -37,3 +37,30 @@ test('merging an equity file keeps funds; summary and weekly reminder', () => {
   assert.equal(uploadDue(new Date(2026, 10, 10).toISOString(), new Date(2026, 10, 19)), true);
   assert.equal(uploadDue(null), true);
 });
+
+test('Console Excel with Equity, Mutual Funds and Combined sheets (different column orders)', () => {
+  const eqHead = [null, 'Symbol', 'ISIN', 'Sector', 'Quantity Available', 'Quantity Discrepant', 'Quantity Long Term', 'Quantity Pledged (Margin)', 'Quantity Pledged (Loan)', 'Average Price', 'Previous Closing Price', 'Unrealized P&L', 'Unrealized P&L Pct.'];
+  const mfHead = [null, 'Symbol', 'ISIN', 'Instrument Type', 'Quantity Available', 'Quantity Discrepant', 'Quantity Pledged (Margin)', 'Quantity Pledged (Loan)', 'Average Price', 'Previous Closing Price', 'Unrealized P&L', 'Unrealized P&L Pct.'];
+  const coHead = [null, 'Symbol', 'ISIN', 'Sector', 'Instrument Type', 'Quantity Available', 'Quantity Discrepant', 'Quantity Long Term', 'Quantity Pledged (Margin)', 'Quantity Pledged (Loan)', 'Average Price', 'Previous Closing Price', 'Unrealized P&L', 'Unrealize P&L Pct.'];
+  const rows = [
+    [null, 'Client ID', 'GU0000'], [null, 'Equity Holdings Statement as on 2026-11-14'], [null, 'Invested Value', 363767.38], [null, ''],
+    eqHead,
+    [null, 'SBIN', 'INE062A01020', 'FINANCIAL SERVICES', 30, 0, 30, 0, 0, 194.3, 1080.5, 26586, 456.1],
+    [null, 'NIFTYBEES', 'INF204KB14I2', 'ETF', 602, 0, 0, 0, 0, 271.19, 286.66, 9310.77, 5.7],
+    [null, 'Client ID', 'GU0000'], [null, 'Mutual Funds Holdings Statement'], [null, 'Invested Value', 1767774.77], [null, ''],
+    mfHead,
+    [null, 'DSP ELSS TAX SAVER FUND - DIRECT PLAN', 'INF740K01OK1', 'Equity - ELSS', 3157.678, 0, 0, 0, 97.5039, 162.187, 204248.5509, 66.34],
+    coHead,
+    [null, 'SBIN', 'INE062A01020', 'FINANCIAL SERVICES', '-', 30, 0, 30, 0, 0, 194.3, 1080.5, 26586, 456.1],
+    [null, 'DSP ELSS TAX SAVER FUND - DIRECT PLAN', 'INF740K01OK1', '-', 'Equity - ELSS', 3157.678, 0, '-', 0, 0, 97.5039, 162.187, 204248.5509, 66.34],
+  ];
+  const h = parseHoldings(rows);
+  assert.equal(h.length, 3, 'Combined sheet duplicates skipped');
+  assert.equal(h.find((x) => x.symbol === 'NIFTYBEES').type, 'equity', 'ETFs count with stocks, as on Console');
+  const dsp = h.find((x) => x.type === 'mf');
+  assert.equal(dsp.avg, 97.5);
+  assert.equal(dsp.price, 162.19);
+  assert.equal(Math.round(dsp.value), 512134);
+  assert.equal(Math.round(dsp.pnl), 204249);
+  assert.equal(Math.round(h.find((x) => x.symbol === 'SBIN').value), 32415);
+});

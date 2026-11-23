@@ -75,7 +75,7 @@ async function loadList({ append = false } = {}) {
       : mailApi('list', { folder: view.folder === 'unread' ? 'inbox' : view.folder, unread: view.folder === 'unread', start: view.start, limit, mailbox: b.id }))
       .then((r) => r.messages.map((m) => ({ ...m, mailbox: b.id, mailboxEmail: b.email })))));
     const got = results.filter((x) => x.status === 'fulfilled').flatMap((x) => x.value).sort((a, b) => (b.time || 0) - (a.time || 0));
-    const failed = results.map((x, i) => (x.status === 'rejected' ? `${boxes[i].email || 'mailbox'}: ${x.reason?.message}` : null)).filter(Boolean);
+    const failed = results.map((x, i) => (x.status === 'rejected' ? `${boxes[i].email || 'Main mailbox'}: ${x.reason?.message}` : null)).filter(Boolean);
     view.messages = append ? view.messages.concat(got) : got;
     view.more = results.some((x) => x.status === 'fulfilled' && x.value.length === limit);
     view.error = failed.length ? new Error(failed.join(' · ')) : null;
@@ -95,7 +95,7 @@ function render() {
     <form class="add-bar" data-form="search" role="search"><input name="q" type="search" placeholder="Search mail… e.g. ravi@client.com or invoice" value="${esc(view.q)}" autocomplete="off"><button class="btn">Search</button></form>
     <div class="chips">${FOLDERS.map(([k, l]) => `<button type="button" class="chip ${!view.q && view.folder === k ? 'on' : ''}" data-act="folder" data-f="${k}">${l}</button>`).join('')}
       ${view.q ? `<button type="button" class="chip on" data-act="clear-search">✕ “${esc(view.q)}”</button>` : ''}</div>
-    ${view.error ? `<div class="alert bad"><i>⚠️</i><span>${esc(view.error.message)}</span></div>` : ''}
+    ${view.error ? `<div class="alert bad"><i>⚠️</i><span>${esc(view.error.message)}${s.canAdd && /refused|reconnect|not connected/i.test(view.error.message) ? ' <button class="btn small" data-act="add-box">Reconnect with Zoho</button>' : ''}</span></div>` : ''}
     <ul class="rows">${view.messages.map((m, i) => `<li class="row tap mail-row ${m.unread ? 'unread' : ''}" data-act="open" data-i="${i}">
       <div class="grow"><div class="mail-top"><span class="title">${m.unread ? '<i class="dot"></i>' : ''}${esc(m.from.name || m.from.email)}</span><span class="meta">${mailboxes().length > 1 ? `<span class="box-tag">${esc(short(m.mailboxEmail))}</span> ` : ''}${esc(when(m.time))}</span></div>
       <div class="mail-subject">${m.flagged ? '🚩 ' : ''}${m.hasAttachment ? '📎 ' : ''}${esc(m.subject)}</div>
@@ -110,7 +110,7 @@ function mailboxBar(s) {
     ? `<div class="chips box-chips"><button type="button" class="chip ${view.box === 'all' ? 'on' : ''}" data-act="box" data-b="all">All mailboxes</button>${boxes.map((b) => `<button type="button" class="chip ${view.box === b.id ? 'on' : ''}" data-act="box" data-b="${esc(b.id)}">${esc(b.email || 'Mailbox')}</button>`).join('')}</div>`
     : `<p class="hint" style="margin-top:-8px">${esc(s.email || '')}</p>`;
   const manage = view.manage ? `<div class="card manage-boxes"><h3>Mailboxes</h3>
-      <ul class="rows">${boxes.map((b) => `<li class="row"><div class="grow"><div class="title">${esc(b.email || 'Mailbox')}</div>${b.error ? `<div class="meta bad">${esc(b.error)}</div>` : ''}</div><button class="btn small danger" data-act="remove-box" data-b="${esc(b.id)}">Remove</button></li>`).join('')}</ul>
+      <ul class="rows">${boxes.map((b) => `<li class="row"><div class="grow"><div class="title">${esc(b.email || 'Main mailbox (not working)')}</div>${b.error ? `<div class="meta bad">${esc(b.error)}</div>` : ''}</div><button class="btn small danger" data-act="remove-box" data-b="${esc(b.id)}">Remove</button></li>`).join('')}</ul>
       ${s.canAdd ? '<button class="btn primary block" data-act="add-box">+ Add mailbox</button><p class="hint">You’ll sign in to Zoho as the mailbox you want to add. To add a different account, sign out of Zoho first. Best done on your laptop: on iPhone, the Home Screen app can’t always come back from Zoho’s sign-in page.</p>' : '<p class="hint">To add more mailboxes, the server needs ZOHO_WEB_CLIENT_ID and ZOHO_WEB_CLIENT_SECRET in Netlify.</p>'}
     </div>` : '';
   return `${chips}<div class="box-actions"><button type="button" class="link" data-act="manage">${view.manage ? 'Done' : `Mailboxes (${boxes.length})`}</button></div>${manage}`;
