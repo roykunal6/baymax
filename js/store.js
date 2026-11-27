@@ -85,8 +85,79 @@ function defaultHabits() {
 
 export const state = load();
 
-export function save() {
+// ---- Undo ------------------------------------------------------------------
+// Every save that follows something you did (tap, typing, voice) can be undone: we keep the state
+// from before it (last 20). Sync from other devices and background jobs aren't undo steps.
+const UNDO_KEYS = ['tasks', 'notes', 'routines', 'habits', 'finance', 'settings', 'mailTriage'];
+const UNDO_MAX = 20;
+const undoStack = [];
+const undoListeners = new Set();
+const snap = () => JSON.stringify(Object.fromEntries(UNDO_KEYS.map((k) => [k, state[k]])));
+let baseline = snap();
+let userActionUntil = 0;
+let actionSeq = 0;
+let restoring = false;
+
+/** Call when the user does something; saves in the next few seconds become undo steps. */
+export function markUserAction(ms = 4000) { actionSeq++; userActionUntil = Math.max(userActionUntil, Date.now() + ms); }
+export function onUndoable(fn) { undoListeners.add(fn); return () => undoListeners.delete(fn); }
+export const canUndo = () => undoStack.length > 0;
+
+/** Put things back as they were before the last undoable change. Returns {label} or null. */
+export function undo() {
+  const step = undoStack.pop();
+  if (!step) return null;
+  const prev = JSON.parse(step.before);
+  restoring = true;
+  try { for (const k of UNDO_KEYS) if (k in prev) state[k] = prev[k]; save(); } finally { restoring = false; }
+  return step;
+}
+
+const NAMED = [
+  ['tasks', (s) => s.tasks, 'task', (x) => x.title], ['notes', (s) => s.notes, 'note', (x) => x.text],
+  ['spends', (s) => s.finance?.spends, 'spend', (x) => x.note || x.category], ['credits', (s) => s.finance?.credits, 'money-in entry', (x) => x.from],
+  ['obligations', (s) => s.finance?.obligations, 'EMI/SIP/bill', (x) => x.name], ['invoices', (s) => s.finance?.invoices, 'invoice', (x) => x.party],
+  ['cards', (s) => s.finance?.cards, 'card', (x) => x.name], ['holdings', (s) => s.finance?.holdings, 'holding', (x) => x.symbol],
+  ['habits', (s) => s.habits, 'habit', (x) => x.name], ['routines', (s) => s.routines, 'routine', (x) => x.name],
+];
+const short = (t) => { const s = String(t || '').trim(); return s.length > 32 ? `${s.slice(0, 30)}…` : s; };
+/** A few words on what changed, e.g. "Deleted task “Call Ravi”", "Added 12 spends". */
+export function describeChange(beforeJSON, afterJSON) {
+  const a = JSON.parse(beforeJSON), b = JSON.parse(afterJSON);
+  for (const [, get, noun, name] of NAMED) {
+    const x = get(a) || [], y = get(b) || [];
+    const ax = new Map(x.map((i) => [i.id, i])), by = new Map(y.map((i) => [i.id, i]));
+    const added = y.filter((i) => !ax.has(i.id)), removed = x.filter((i) => !by.has(i.id));
+    const changed = y.filter((i) => ax.has(i.id) && JSON.stringify(ax.get(i.id)) !== JSON.stringify(i));
+    const one = (verb, list) => (list.length === 1 ? `${verb} ${noun} “${short(name(list[0]))}”` : `${verb} ${list.length} ${noun}s`);
+    if (added.length && removed.length) return `Changed ${noun}s`;
+    if (added.length) return one('Added', added);
+    if (removed.length) return one('Deleted', removed);
+    if (changed.length) {
+      if (noun === 'task' && changed.length === 1 && !ax.get(changed[0].id).done && changed[0].done) return `Completed task “${short(changed[0].title)}”`;
+      return one('Edited', changed);
+    }
+  }
+  return JSON.stringify(a.settings) !== JSON.stringify(b.settings) ? 'Changed settings' : 'Changed money settings';
+}
+
+export function save({ remote = false } = {}) {
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* ignore quota / private mode */ }
+  const now = snap();
+  if (now !== baseline) {
+    if (!remote && !restoring && Date.now() < userActionUntil) {
+      // Everything saved because of one tap / command is one undo step.
+      let step = undoStack[undoStack.length - 1];
+      if (step && step.seq === actionSeq) step.label = describeChange(step.before, now);
+      else {
+        step = { before: baseline, seq: actionSeq, at: Date.now(), label: describeChange(baseline, now) };
+        undoStack.push(step);
+        if (undoStack.length > UNDO_MAX) undoStack.shift();
+      }
+      undoListeners.forEach((fn) => { try { fn(step); } catch { /* ignore */ } });
+    }
+    baseline = now;
+  }
   listeners.forEach((fn) => fn(state));
   saveHooks.forEach((fn) => { try { fn(state); } catch (e) { console.warn(e); } });
 }

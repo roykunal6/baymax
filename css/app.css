@@ -473,3 +473,8 @@ dialog.secure .lock-card > p.muted { text-align: left; margin: -6px 0 2px; }
 .fire-table th, .fire-table td { text-align: right; padding: 7px 4px; border-bottom: 1px solid var(--border); }
 .fire-table th:first-child, .fire-table td:first-child { text-align: left; }
 .fire-table th { color: var(--muted); font-weight: 600; font-size: 12px; }
+
+#undo-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(88px + env(safe-area-inset-bottom, 0px) + var(--badge-h, 0px)); z-index: 60; display: flex; align-items: center; gap: 14px; max-width: min(560px, calc(100vw - 32px)); padding: 10px 10px 10px 16px; border-radius: 14px; background: #17181b; color: #fff; box-shadow: 0 8px 24px rgba(0,0,0,.25); font-size: 14px; }
+#undo-bar span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#undo-bar button { border: 0; background: #fff; color: #111; font-weight: 700; border-radius: 10px; padding: 7px 14px; font-size: 14px; }
+@media (min-width: 900px) { #undo-bar { bottom: calc(24px + var(--badge-h, 0px)); } }

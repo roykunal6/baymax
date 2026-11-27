@@ -1,7 +1,7 @@
 // App wiring: tabs, chat + voice, Home dashboard, Money, Tasks, More (habits, routines, notes, settings).
 
 import {
-  state, subscribe, save, addTask, updateTask, removeTask, addNote, removeNote,
+  state, subscribe, save, undo, onUndoable, markUserAction, addTask, updateTask, removeTask, addNote, removeNote,
   upsertRoutine, removeRoutine, pushHistory, exportData, importData, wipe, uid,
   addHabit, toggleHabit, removeHabit, habitStreak, onSave,
 } from './store.js';
@@ -180,6 +180,8 @@ function answerPending(p, text) {
 async function handleInput(raw) {
   const text = String(raw || '').trim();
   if (!text) return;
+  markUserAction(8000);
+  if (/^(undo|undo (that|it|last( action| change)?)|revert( that)?)[.!]?$/i.test(text)) { addMsg('user', text); const step = doUndo(); addMsg('bot', step ? `Undone: ${step.label}.` : 'There’s nothing to undo.'); return; }
   stopSpeaking();
   addMsg('user', text);
 
@@ -739,6 +741,36 @@ function confirmTap(btn, prompt = 'Tap again to confirm') {
   return false;
 }
 
+// ---------------------------------------------------------------- undo
+const undoBar = document.createElement('div');
+undoBar.id = 'undo-bar';
+undoBar.setAttribute('role', 'status');
+undoBar.hidden = true;
+undoBar.innerHTML = '<span></span><button type="button">Undo</button>';
+document.body.append(undoBar);
+let undoTimer;
+onUndoable((step) => {
+  undoBar.querySelector('span').textContent = step.label;
+  undoBar.hidden = false;
+  clearTimeout(undoTimer);
+  undoTimer = setTimeout(() => { undoBar.hidden = true; }, 8000);
+});
+function doUndo() {
+  const step = undo();
+  undoBar.hidden = true;
+  if (!step) { toast('Nothing to undo'); return null; }
+  renderAll();
+  toast(`Undone: ${step.label}`);
+  return step;
+}
+undoBar.querySelector('button').addEventListener('click', (e) => { e.stopPropagation(); doUndo(); });
+// Anything you tap, type or upload marks the next saves as yours (file reading can take a while).
+for (const ev of ['pointerdown', 'keydown', 'submit']) document.addEventListener(ev, (e) => { if (!undoBar.contains(e.target)) markUserAction(); }, true);
+document.addEventListener('change', (e) => markUserAction(e.target?.type === 'file' ? 30000 : 4000), true);
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !e.target.closest?.('input, textarea, [contenteditable]')) { e.preventDefault(); doUndo(); }
+});
+
 let toastTimer;
 function toast(msg) {
   const t = $('#toast');
@@ -791,7 +823,7 @@ function startCloudSync() {
     client: cloud.client,
     userId: cloud.user.id,
     state,
-    persist: save,
+    persist: () => save({ remote: true }),
     onRemote: () => { processBankInbox(); renderAll(); },
     onStatus: (st) => { cloud.status = st; renderSyncState(); },
     cipher: cipherFor(cloud.keys),
