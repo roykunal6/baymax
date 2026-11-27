@@ -4,7 +4,7 @@
 // entered once and edited any time. Pure maths is exported for tests.
 
 import { state, save } from './store.js';
-import { inr } from './finance.js';
+import { inr, nextMonthlyDate, monthKey } from './finance.js';
 import { portfolioSummary, byOwner } from './zerodha.js';
 import { openSheet } from './sheet.js';
 
@@ -136,6 +136,25 @@ export function importFromLink(payload, { addTask } = {}) {
   if (payload.fire && typeof payload.fire === 'object') {
     state.finance.fire = { ...(state.finance.fire || {}), ...payload.fire };
     out.fire = true;
+  }
+  // Dues: EMIs, SIPs, bills. Updates one you already have (same kind, name matches `match`), else adds it.
+  out.dues = 0;
+  for (const d of Array.isArray(payload.dues) ? payload.dues.slice(0, 40) : []) {
+    if (!d?.name || !(Number(d.amount) > 0) || !['emi', 'sip', 'bill'].includes(d.kind)) continue;
+    const id = `ob-${String(d.key || d.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)}`;
+    const re = d.match ? new RegExp(d.match, 'i') : null;
+    const obs = state.finance.obligations;
+    const existing = obs.find((o) => o.id === id) || (re && obs.find((o) => o.kind === d.kind && re.test(o.name)));
+    const day = Math.min(28, Math.max(1, Number(d.day) || 1));
+    const fields = { kind: d.kind, name: String(d.name).slice(0, 80), amount: Number(d.amount), schedule: { type: 'monthly', day }, endMonth: d.endMonth || null };
+    if (existing) Object.assign(existing, fields);
+    else obs.push({ id, ...fields, startMonth: monthKey(nextMonthlyDate(day, new Date())), paid: {} });
+    out.dues++;
+  }
+  // Tasks to tick off (by id).
+  for (const id of Array.isArray(payload.tasksDone) ? payload.tasksDone.slice(0, 50) : []) {
+    const t = state.tasks.find((x) => x.id === String(id));
+    if (t && !t.done) { t.done = true; t.doneAt = new Date().toISOString(); out.done = (out.done || 0) + 1; }
   }
   for (const t of Array.isArray(payload.tasks) ? payload.tasks.slice(0, 50) : []) {
     if (!t?.title) continue;

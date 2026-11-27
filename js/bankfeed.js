@@ -110,3 +110,35 @@ export function planBankItems(fin, items, now = new Date(), { statement = false 
   }
   return out;
 }
+
+// ---------------------------------------------------------------- recurring bills found in a statement
+const TELECOM = [
+  [/\bjio ?fib(re|er)\b/i, 'JioFiber internet'], [/airtel ?(xstream|fib(re|er)|broadband)/i, 'Airtel broadband'], [/\bact ?(fibernet|broadband)\b/i, 'ACT Fibernet'],
+  [/\bhathway\b/i, 'Hathway internet'], [/\bexcitel\b/i, 'Excitel internet'], [/\btata ?play\b/i, 'Tata Play'], [/\bspectra\b/i, 'Spectra internet'], [/\byou ?broadband\b/i, 'YOU Broadband'],
+  [/\bairtel\b/i, 'Airtel mobile'], [/\b(reliance ?)?jio\b/i, 'Jio mobile'], [/\bvodafone|vodafone ?idea|\bvi ?(postpaid|prepaid)\b/i, 'Vi mobile'], [/\bbsnl\b/i, 'BSNL'], [/\bmtnl\b/i, 'MTNL'],
+];
+
+/**
+ * Phone / internet bills paid in these transactions that aren't in Dues yet → new monthly bills
+ * (amount and day from the latest payment; they start from that month so it counts as paid).
+ */
+export function detectBills(fin, txns) {
+  const found = new Map();
+  for (const t of txns) {
+    if (t.type !== 'debit') continue;
+    const text = `${t.merchant || ''} ${t.text || ''}`;
+    const hit = TELECOM.find(([re]) => re.test(text));
+    if (!hit) continue;
+    const prev = found.get(hit[1]);
+    if (!prev || String(t.date) > String(prev.date)) found.set(hit[1], t);
+  }
+  const out = [];
+  for (const [name, t] of found) {
+    const word = name.split(' ')[0].toLowerCase();
+    if (fin.obligations.some((o) => o.kind === 'bill' && o.name.toLowerCase().includes(word))) continue;
+    const d = parseDay(t.date);
+    out.push({ id: `bill-${word}-${String(name).toLowerCase().replace(/[^a-z]+/g, '-')}`, kind: 'bill', name, amount: Math.round(t.amount),
+      schedule: { type: 'monthly', day: d.getDate() }, startMonth: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, endMonth: null, paid: {} });
+  }
+  return out;
+}

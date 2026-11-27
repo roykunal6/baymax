@@ -112,3 +112,17 @@ test('net spent = money out − money in', async () => {
   assert.equal(s.moneyOut, 5000);
   assert.equal(s.creditedTotal, 1500);
 });
+
+test('phone and internet bills found in a statement become monthly bills (paid this month)', async () => {
+  const { detectBills, planBankItems } = await import('../js/bankfeed.js');
+  const fin = { spends: [], credits: [], invoices: [], cards: [], obligations: [{ id: 'x', kind: 'bill', name: 'Jio mobile', amount: 299, schedule: { type: 'monthly', day: 3 }, paid: {} }] };
+  const txns = [
+    { id: 1, type: 'debit', amount: 1178.82, date: '2026-11-07', merchant: 'AIRTEL XSTREAM', text: 'UPI/P2M/1/AIRTEL XSTREAM FIBER' },
+    { id: 2, type: 'debit', amount: 299, date: '2026-11-03', merchant: 'JIO', text: 'UPI/P2M/2/RELIANCE JIO' },
+    { id: 3, type: 'debit', amount: 390, date: '2026-11-22', merchant: 'BLINKIT', text: 'UPI/P2M/3/BLINKIT' },
+  ];
+  const bills = detectBills(fin, txns);
+  assert.deepEqual(bills.map((b) => [b.name, b.amount, b.schedule.day, b.startMonth]), [['Airtel broadband', 1179, 7, '2026-11']], 'Jio already in Dues');
+  const plan = planBankItems({ ...fin, obligations: [...fin.obligations, ...bills] }, txns, new Date(2026, 10, 27), { statement: true });
+  assert.deepEqual(plan.spends.map((x) => x.amount), [390], 'bills marked paid, not spends');
+});
