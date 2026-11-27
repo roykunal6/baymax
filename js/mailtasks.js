@@ -18,17 +18,26 @@ const setLast = (t) => { try { localStorage.setItem(LAST, String(t)); } catch { 
 export const lastMailCheck = () => last();
 
 function triageState() {
-  if (!state.mailTriage) state.mailTriage = { on: false, seen: {} };
-  if (!state.mailTriage.seen) state.mailTriage.seen = {};
+  if (!state.mailTriage) state.mailTriage = { on: false, seen2: {} };
+  if (!state.mailTriage.seen2) state.mailTriage.seen2 = {};
   // You asked for it on: switch on once (synced), after that your switch decides.
   if (!state.mailTriage.v) { state.mailTriage.on = true; state.mailTriage.v = 2; save(); }
+  // v3: only emails addressed to you. Re-check open email tasks once (done or deleted ones stay gone).
+  if (state.mailTriage.v < 3) {
+    const open = state.tasks.filter((t) => t.source?.type === 'mail' && !t.done);
+    const recheck = new Set(open.map((t) => t.source.messageId));
+    state.tasks = state.tasks.filter((t) => !(t.source?.type === 'mail' && !t.done));
+    state.mailTriage.seen2 = Object.fromEntries(Object.entries(state.mailTriage.seen || {}).filter(([k]) => !recheck.has(k)));
+    state.mailTriage.v = 3;
+    save();
+  }
   return state.mailTriage;
 }
 
 /** Apply a triage result to the task list. Pure enough to unit-test with a plain state object. */
 export function applyTriage(st, result, now = Date.now()) {
   const tri = st.mailTriage || (st.mailTriage = { on: false, seen: {} });
-  const seen = tri.seen || (tri.seen = {});
+  const seen = tri.seen2 || (tri.seen2 = {});
   const added = [], completed = [];
   for (const it of result.items || []) {
     if (seen[it.messageId]) continue;
@@ -63,7 +72,7 @@ export async function checkMailForTasks({ force = false, announce = true } = {})
   if (!force && Date.now() - last() < EVERY) return null;
   running = true;
   try {
-    const r = await triageAll(Object.keys(triageState().seen));
+    const r = await triageAll(Object.keys(triageState().seen2));
     setLast(Date.now());
     const out = applyTriage(state, r);
     if (out.added.length || out.completed.length) save();
@@ -87,10 +96,13 @@ export function startMailTasks(toastFn) {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkMailForTasks(); });
 }
 
+/** First names you go by (Settings name, and the names in Money → Setup). */
+const myNames = () => [state.settings?.name, ...String(state.finance?.selfNames || '').split(',')].map((n) => String(n || '').trim().split(/\s+/)[0]).filter(Boolean);
+
 /** Run the check on every connected mailbox and combine the results. */
 async function triageAll(skip) {
   const boxes = await loadMailboxes();
-  const res = await Promise.allSettled(boxes.map((b) => mailApi('triage', { days: 14, skip, mailbox: b.id })
+  const res = await Promise.allSettled(boxes.map((b) => mailApi('triage', { days: 14, skip, names: myNames(), mailbox: b.id })
     .then((r) => ({ ...r, items: (r.items || []).map((i) => ({ ...i, mailbox: b.id, mailboxEmail: b.email })), stats: { ...(r.stats || {}), mailbox: r.stats?.mailbox || b.email } }))));
   if (!boxes.length || res.every((x) => x.status === 'rejected')) throw res[0]?.reason || Object.assign(new Error('Zoho Mail isn’t connected yet.'), { code: 'not_connected' });
   const ok = res.filter((x) => x.status === 'fulfilled').map((x) => x.value);

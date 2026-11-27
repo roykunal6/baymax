@@ -400,7 +400,7 @@ const actions = {
 
   /** Emails that need something from you → task suggestions. Reads text without marking anything read.
    *  skip: message ids already handled (their text isn't fetched again). */
-  async triage({ days = 14, skip = [] }) {
+  async triage({ days = 14, skip = [], names = [] }) {
     const { accountId, email } = await account();
     const [inboxId, sentId] = await Promise.all([folderId('inbox'), folderId('sent')]);
     const view = (fid) => zoho(`/accounts/${accountId}/messages/view`, { query: { folderId: fid, start: 1, limit: 100, status: 'all', sortorder: false } });
@@ -414,7 +414,7 @@ const actions = {
       try { m.text = htmlToText((await zoho(`/accounts/${accountId}/folders/${m.folderId}/messages/${m.messageId}/content`))?.content || '').slice(0, 6000); } catch { /* use the summary */ }
     }));
     const people = inbox.filter((m) => isPersonMessage(m, email)).length;
-    return { ...triageMessages({ inbox, sent, me: email, days }), stats: { mailbox: email, checked: inbox.length, fromPeople: people, ignored: inbox.length - people } };
+    return { ...triageMessages({ inbox, sent, me: email, names: (Array.isArray(names) ? names : []).slice(0, 10).map(String), days }), stats: { mailbox: email, checked: inbox.length, fromPeople: people, ignored: inbox.length - people } };
   },
 
   /** Moves to Trash (Zoho keeps it there; nothing is permanently deleted). */

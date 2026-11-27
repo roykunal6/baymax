@@ -141,7 +141,7 @@ export function importFromLink(payload, { addTask } = {}) {
     if (!t?.title) continue;
     const id = String(t.id || '').replace(/[^\w-]/g, '').slice(0, 60) || null;
     if (id && state.tasks.some((x) => x.id === id)) continue;
-    if (id && state.mailTriage?.seen && t.source?.messageId) state.mailTriage.seen[t.source.messageId] = Date.now();
+    if (id && t.source?.messageId) { state.mailTriage = state.mailTriage || {}; state.mailTriage.seen2 = { ...(state.mailTriage.seen2 || {}), [t.source.messageId]: Date.now() }; }
     state.tasks.push({
       id: id || `imp-${Date.now().toString(36)}-${out.tasks}`, title: String(t.title).slice(0, 200), due: t.due || null, done: false, notified: false, isTimer: false,
       createdAt: new Date().toISOString(), ...(t.note ? { note: String(t.note).slice(0, 400) } : {}), ...(t.source ? { source: t.source } : {}),
