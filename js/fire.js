@@ -151,6 +151,11 @@ export function importFromLink(payload, { addTask } = {}) {
     else obs.push({ id, ...fields, startMonth: monthKey(nextMonthlyDate(day, new Date())), paid: {} });
     out.dues++;
   }
+  // Tasks to tick off (by id).
+  for (const id of Array.isArray(payload.tasksDone) ? payload.tasksDone.slice(0, 50) : []) {
+    const t = state.tasks.find((x) => x.id === String(id));
+    if (t && !t.done) { t.done = true; t.doneAt = new Date().toISOString(); out.done = (out.done || 0) + 1; }
+  }
   for (const t of Array.isArray(payload.tasks) ? payload.tasks.slice(0, 50) : []) {
     if (!t?.title) continue;
     const id = String(t.id || '').replace(/[^\w-]/g, '').slice(0, 60) || null;
