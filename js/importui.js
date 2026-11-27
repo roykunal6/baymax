@@ -2,7 +2,7 @@
 
 import { state, save, setPaid } from './store.js';
 import { readStatementFile, toBankTransactions } from './statement.js';
-import { planBankItems } from './bankfeed.js';
+import { planBankItems, detectBills } from './bankfeed.js';
 import { noteStatementImported } from './statements.js';
 import { inr } from './finance.js';
 
@@ -15,6 +15,7 @@ export function initImport(toast) {
   const nextBtn = $('#import-next');
   const err = $('#import-error');
   let plan = null;
+  let newBills = [];
 
   const showError = (m) => { err.textContent = m; err.hidden = !m; };
   const reset = () => {
@@ -46,7 +47,8 @@ export function initImport(toast) {
       const card = state.finance.cards.find((c) => c.id === source);
       const txns = toBankTransactions(rows, card ? { last4: card.last4 || '', channel: 'credit card' } : {});
       if (card && !card.last4) txns.forEach((t) => { t.bank = card.name; }); // match by name if no last 4
-      plan = planBankItems(state.finance, txns, new Date(), { statement: true });
+      newBills = detectBills(state.finance, txns);
+      plan = planBankItems({ ...state.finance, obligations: [...state.finance.obligations, ...newBills] }, txns, new Date(), { statement: true });
       if (card) plan.spends.forEach((x) => { x.method = card.id; });
       renderPreview(rows.length);
     } catch (e) {
@@ -66,6 +68,7 @@ export function initImport(toast) {
       <div class="alert info"><span>Found <b>${total}</b> transactions. <b>${plan.spends.length}</b> new spends (${inr(spendSum)}), <b>${plan.credits.length}</b> money in, <b>${plan.paid.length}</b> payments matched to your EMIs/SIPs/bills, <b>${plan.skipped.length}</b> skipped.</span></div>
       ${list('New spends', plan.spends.map((x) => [x.note, `${x.date} · ${x.category}`, inr(x.amount)]))}
       ${list('Money in', plan.credits.map((x) => [x.from, `${x.date} · ${x.kind}`, inr(x.amount)]))}
+      ${list('New bills added to Dues', newBills.map((b) => [b.name, `Every month on the ${b.schedule.day}`, inr(b.amount)]))}
       ${list('Marked as paid', plan.messages.map((m) => [m, '', '']))}
       ${list('Skipped', plan.skipped.map((x) => [x.t.merchant || x.t.text, `${x.t.date} · ${x.why}`, inr(x.t.amount)]))}`;
     $('#import-step1').hidden = true;
@@ -74,6 +77,7 @@ export function initImport(toast) {
   }
 
   function doImport() {
+    state.finance.obligations.push(...newBills.filter((b) => !state.finance.obligations.some((o) => o.id === b.id)));
     state.finance.spends.push(...plan.spends);
     state.finance.credits = [...(state.finance.credits || []), ...plan.credits];
     for (const p of plan.paid) setPaid(p.ref, p.id, p.key, true);

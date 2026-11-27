@@ -807,7 +807,7 @@ function startCloudSync() {
       const b64 = location.hash.slice(8).replace(/-/g, '+').replace(/_/g, '/');
       const payload = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))));
       const r = importFromLink(payload);
-      toast(`Imported${r.fire ? ' your FIRE goal' : ''}${r.fire && r.tasks ? ' and' : ''}${r.tasks ? ` ${r.tasks} task${r.tasks > 1 ? 's' : ''}` : ''}`);
+      toast(['Imported', r.fire && 'your FIRE goal', r.tasks && `${r.tasks} task${r.tasks > 1 ? 's' : ''}`, r.dues && `${r.dues} EMIs, SIPs and bills`].filter(Boolean).join(r.fire || r.tasks || r.dues ? ' · ' : '').replace('Imported · ', 'Imported '));
       renderAll();
     } catch { toast('That import link didn’t work.'); }
     history.replaceState(null, '', `${location.pathname}#home`);
