@@ -87,3 +87,28 @@ test('FLEXI deposit sweeps are ignored', async () => {
   assert.equal(out.credits.length, 0);
   assert.equal(out.skipped.filter((x) => /FLEXI/.test(x.why)).length, 2);
 });
+
+test('statement: SIPs, EMIs and own-account transfers are never spends; FLEXI ignored', async () => {
+  const { planBankItems } = await import('../js/bankfeed.js');
+  const fin = { spends: [], credits: [], invoices: [], cards: [], obligations: [], selfNames: 'Kunal Partha Roy, Kunal Roy', ownAccounts: '9361, 0879, 7004, 0816' };
+  const out = planBankItems(fin, [
+    { id: 1, type: 'debit', amount: 60000, date: '2026-11-05', last4: '9361', text: 'ACH D- ZERODHA BROKING SIP' },
+    { id: 2, type: 'debit', amount: 65479, date: '2026-11-05', last4: '9361', text: 'ICICI HOME LOAN EMI 0879' },
+    { id: 3, type: 'debit', amount: 20000, date: '2026-11-07', last4: '9361', text: 'MOB/TPFT/KUNAL PARTHA ROY/HDFC' },
+    { id: 4, type: 'credit', amount: 5000, date: '2026-11-08', last4: '9361', text: 'IMPS from Bandhan A/c XX0816' },
+    { id: 5, type: 'debit', amount: 100000, date: '2026-11-09', last4: '9361', text: 'TRF TO FLEXI DEP' },
+    { id: 6, type: 'debit', amount: 390, date: '2026-11-22', last4: '9361', merchant: 'BLINKIT', text: 'UPI/P2M/1/BLINKIT', channel: 'upi' },
+    { id: 7, type: 'credit', amount: 1200, date: '2026-11-23', last4: '9361', merchant: 'SUMIT CHOUDHARY', text: 'UPI/P2A/2/SUMIT CHOUDHARY', channel: 'upi' },
+  ], new Date(2026, 10, 27), { statement: true });
+  assert.deepEqual(out.spends.map((x) => x.amount), [390]);
+  assert.deepEqual(out.credits.map((x) => x.amount), [1200]);
+});
+
+test('net spent = money out − money in', async () => {
+  const { monthSummary } = await import('../js/finance.js');
+  const fin = { spends: [{ amount: 5000, date: '2026-11-10', category: 'Food' }], credits: [{ amount: 1200, date: '2026-11-11', kind: 'income' }, { amount: 300, date: '2026-11-12', kind: 'refund' }], cards: [], obligations: [], invoices: [] };
+  const s = monthSummary(fin, new Date(2026, 10, 27));
+  assert.equal(s.spent, 3500);
+  assert.equal(s.moneyOut, 5000);
+  assert.equal(s.creditedTotal, 1500);
+});

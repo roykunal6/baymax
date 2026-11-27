@@ -266,8 +266,15 @@ function spends() {
       <div class="btn-row"><button class="btn small" data-act="import-statement">Import statement</button><button class="btn primary small" data-act="add-spend">＋ Spend</button></div>
     </div>
     <div class="chips">${filters.map(([k, l]) => `<button type="button" class="chip ${spendFilter === k ? 'on' : ''}" data-act="filter" data-f="${esc(k)}">${esc(l)}</button>`).join('')}</div>
-    <div class="card"><div class="card-head"><h3>Total</h3><b class="num" style="font-size:20px">${inr(total)}</b></div>
-      <p class="hint" style="margin:0">${list.length} spend${list.length === 1 ? '' : 's'}. Tip: say “spent 450 on lunch with ${esc(fin().cards[0]?.name || 'UPI')}”.</p></div>
+    ${(() => {
+      const credits = spendFilter === 'all' ? (fin().credits || []).filter((x) => String(x.date).startsWith(mk)).sort((a, b) => b.date.localeCompare(a.date)) : [];
+      const inTotal = credits.reduce((a, x) => a + x.amount, 0);
+      return `<div class="card"><div class="card-head"><h3>${credits.length ? 'Net spent' : 'Total'}</h3><b class="num" style="font-size:20px">${inr(Math.max(0, total - inTotal))}</b></div>
+      ${credits.length ? `<div class="row-mini"><span>Money out (${list.length})</span><b>${inr(total)}</b></div><div class="row-mini"><span>Money in (${credits.length})</span><b style="color:var(--good)">− ${inr(inTotal)}</b></div>
+        <details style="margin-top:8px"><summary class="muted" style="cursor:pointer;font-weight:650">Money in this month</summary>
+        <ul class="rows flat">${credits.map((x) => `<li class="row"><div class="grow"><div class="title">${esc(x.from || 'Money in')}</div><div class="meta">${esc(parseDay(x.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }))} · ${esc(x.kind || 'credit')}</div></div><div class="amount" style="color:var(--good)">+${inr(x.amount)}</div></li>`).join('')}</ul></details>`
+        : `<p class="hint" style="margin:0">${list.length} spend${list.length === 1 ? '' : 's'}. Tip: say “spent 450 on lunch with ${esc(fin().cards[0]?.name || 'UPI')}”.</p>`}</div>`;
+    })()}
     ${Object.keys(byDay).length ? Object.entries(byDay).map(([day, items]) => `
       <div class="group-label"><span>${parseDay(day).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}</span><span class="num">${inr(items.reduce((a, x) => a + x.amount, 0))}</span></div>
       <ul class="rows">${items.map((x) => `<li class="row tap" data-act="edit-spend" data-id="${x.id}">
@@ -418,6 +425,10 @@ function setup() {
         <label>Spending budget (₹)<input name="budget" inputmode="decimal" value="${f.budget || ''}" placeholder="40000" autocomplete="off"></label>
       </div>
       <p class="hint" style="margin:-4px 0 0">Budget is for day-to-day spending (food, shopping, travel…). EMIs, bills and SIPs are tracked separately. Leave it empty to use income minus EMIs, bills and SIPs.</p>
+      <h3 style="margin-top:6px">Your accounts</h3>
+      <label>Your name as it appears on transfers<input name="selfNames" value="${esc(f.selfNames || '')}" placeholder="Kunal Roy, Kunal Partha Roy" autocomplete="off"></label>
+      <label>Your account / card numbers (last 4 digits)<input name="ownAccounts" value="${esc(f.ownAccounts || '')}" placeholder="9361, 0879, 7004, 0816" autocomplete="off" inputmode="numeric"></label>
+      <p class="hint" style="margin:-4px 0 0">Money moved between these accounts, SIPs, EMIs and anything mentioning FLEXI are never counted as spending.</p>
       <label>Remind me about payments<select name="remindDays">${[0, 1, 2, 3, 5, 7].map((n) => `<option value="${n}" ${Number(f.remindDays) === n ? 'selected' : ''}>${n === 0 ? 'On the due date' : `${n} day${n > 1 ? 's' : ''} before`}</option>`).join('')}</select></label>
       <details><summary class="muted" style="cursor:pointer;font-weight:650">Category budgets (optional)</summary>
         <div class="form-row" style="margin-top:12px">${CATEGORIES.map((c) => `<label>${c}<input name="cat-${c}" inputmode="decimal" value="${f.categoryBudgets?.[c] || ''}" autocomplete="off"></label>`).join('')}</div>
@@ -457,6 +468,7 @@ export function bindMoney(el, rerender) {
     const num = (k) => { const n = Number(String(fd.get(k) || '').replace(/[,₹\s]/g, '')); return n > 0 ? n : 0; };
     const f = fin();
     f.income = num('income'); f.budget = num('budget'); f.remindDays = Number(fd.get('remindDays'));
+    f.selfNames = String(fd.get('selfNames') || '').trim().slice(0, 200); f.ownAccounts = String(fd.get('ownAccounts') || '').trim().slice(0, 100);
     f.categoryBudgets = {};
     for (const c of CATEGORIES) { const n = num(`cat-${c}`); if (n) f.categoryBudgets[c] = n; }
     save();

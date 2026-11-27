@@ -120,3 +120,20 @@ test('lessons from kunal.roy@ inbox', () => {
   // quoted reply inside a one-line preview
   assert.equal(freshText('TDS deducted twice. Regards, Bhavika From: Kunal Roy <k@x.com> Sent: 18 November 2026 To: Bhavika Subject: RE: due date list'), 'TDS deducted twice. Regards, Bhavika');
 });
+
+test('only emails addressed to you become tasks', async () => {
+  const { addressedToMe } = await import('../js/mailtriage.js');
+  const names = ['Kunal'];
+  const to = (text, extra = {}) => ({ to: [{ email: ME }], cc: [], text, ...extra });
+  assert.equal(addressedToMe(to('Hi Kunal, can you share the costing?'), ME, names), true);
+  assert.equal(addressedToMe(to('Hi Priti, looking into this.'), ME, names), false, 'someone else’s to-do');
+  assert.equal(addressedToMe(to('Hi Santosh, the team is working on it. Can you check?'), ME, names), false);
+  assert.equal(addressedToMe(to('Dear Sir/Madam, please confirm the balance.'), ME, names), true);
+  assert.equal(addressedToMe(to('Hi @Digital Koala team, could you reconnect the channels?'), ME, names), true);
+  assert.equal(addressedToMe(to('Hi Omkar @Kunal please check the CRM workflows'), ME, names), true, 'mentioned');
+  assert.equal(addressedToMe(to('Please share the invoice.'), ME, names), true, 'no greeting: the To line decides');
+  assert.equal(addressedToMe({ to: [{ email: 'other@x.com' }], cc: [{ email: ME }], text: 'Hi Kunal, FYI' }, ME, names), false, 'only on Cc');
+  // and in the full triage
+  const m = msg({ subject: 'Changes', text: 'Hi Priti, could you send the files?', ago: 30 });
+  assert.equal(triageMessages({ inbox: [m], sent: [], me: ME, names, now: NOW }).items.length, 0);
+});

@@ -46,6 +46,26 @@ export function isPersonMessage(m, me) {
   return true;
 }
 
+/**
+ * Is this email for you to act on? You must be on the To line (Cc means FYI), and if it opens with
+ * a greeting, the greeting must name you ("Hi Kunal", "@Kunal") or be general ("Hi team",
+ * "Dear Sir/Madam"). "Hi Priti," means it's Priti's to-do.
+ */
+const GENERIC = /\b(team|all|everyone|everybody|sir|madam|ma'?am|there|folks|guys|both|colleagues|partners?|vendors?|concerned|customer|receiver)\b/i;
+export function addressedToMe(m, me, names = []) {
+  const mine = String(me || '').toLowerCase();
+  if (mine && !(m.to || []).some((x) => (x.email || '').toLowerCase() === mine)) return false;
+  const my = [...new Set([...(names || []), mine.split('@')[0].split(/[._\-\d]+/)[0]].map((n) => String(n || '').trim().toLowerCase()).filter((n) => n.length >= 3))];
+  const body = freshText(m.text || m.summary || '');
+  const mentionsMe = my.some((n) => new RegExp(`@\\s?${n}\\b`, 'i').test(body));
+  if (mentionsMe) return true;
+  const g = body.match(/^\s*(?:hi|hello|hey|dear|good\s+(?:morning|afternoon|evening)|greetings)\b[\s,]*([^,\n!:;]{0,50})/i);
+  if (!g) return true; // no greeting: To line decides
+  const who = g[1].replace(/@/g, ' ').trim();
+  if (!who || GENERIC.test(who)) return true;
+  return my.some((n) => new RegExp(`\\b${n}\\b`, 'i').test(who));
+}
+
 const CALL = /\b(call me|give me a (call|ring)|call (me )?back|ring me|(can|could|shall) we (get on|hop on|have|do|schedule|set up) a (quick )?(call|phone call|zoom|meet|teams call)|(schedule|set up|book) a (quick )?call|(quick|short) call|missed (your|my) call|tried calling|please call|call (him|her|them|us)|speak (on|over) (the )?phone|whatsapp call)\b/i;
 const CHASE = /\b(following up|follow(ing)?[- ]up on|gentle reminder|friendly reminder|just checking in|checking in on|any updates?( on)?|circling back|bumping (this|this up)|awaiting your (reply|response|revert)|waiting (for|on) your (reply|response|revert|confirmation)|didn'?t hear back|haven'?t heard back|reminder:?\s*$)\b/i;
 const DEADLINE = /\b(deadline|due (date|on|by)|by (eod|end of (the )?day|cob|close of business|tomorrow|today|tonight|(this |next )?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)|\d{1,2}(st|nd|rd|th)?( of)? [a-z]{3,9})|before (tomorrow|(this |next )?(monday|tuesday|wednesday|thursday|friday|saturday|sunday))|remind(er)?|don'?t forget|scheduled for|meeting (on|at)|invit(e|ation) to)\b/i;
@@ -137,7 +157,7 @@ export function hasReply(m, sent) {
  * Returns {items: tasks to add, replied: messageIds you've answered, examined: ids that can be skipped next time}.
  * Unanswered questions only count once they're `minAgeHours` old (you may still be replying).
  */
-export function triageMessages({ inbox, sent, me, now = Date.now(), days = 14, minAgeHours = 4 }) {
+export function triageMessages({ inbox, sent, me, names = [], now = Date.now(), days = 14, minAgeHours = 4 }) {
   const since = now - days * 864e5;
   const items = [], replied = [], examined = [];
   for (const m of inbox) {
@@ -146,6 +166,7 @@ export function triageMessages({ inbox, sent, me, now = Date.now(), days = 14, m
     if (answered) replied.push(m.messageId);
     const oldEnough = now - m.time >= minAgeHours * 3600e3;
     if (!isPersonMessage(m, me)) { examined.push(m.messageId); continue; }
+    if (!addressedToMe(m, me, names)) { if (m.text != null || oldEnough) examined.push(m.messageId); continue; }
     const c = classify(m, new Date(now));
     if (!c) { if (oldEnough && m.text != null) examined.push(m.messageId); continue; }
     // Replies and follow-ups only matter while unanswered; calls and deadlines stand on their own.

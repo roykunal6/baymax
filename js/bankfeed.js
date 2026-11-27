@@ -21,6 +21,19 @@ const CARD_PAYMENT = /\b(credit ?card (bill|payment)|card ?payment|cc ?(bill|pay
 const SELF_TRANSFER = /\b(self|own account|to your .*account|sweep|fd booking|fixed deposit)\b/i;
 // Axis 'FLEXI' (auto-sweep to and from a flexi deposit): your own money moving, never a spend or income.
 const FLEXI = /flexi/i;
+// Investments and loan repayments: tracked under Dues, never spends.
+const SIP_OR_EMI = /\b(sip|systematic|mutual ?fund|\bmf\b|nach|ach ?d|ach-?dr|mandate|bse ?star|bse ?ltd|indian clearing|nse clearing|zerodha|coin by|groww|cams|kfin|kfintech|amc|emi|home ?loan|housing loan|loan (a\/?c|account|repay|recovery|emi)|lnemi)\b/i;
+
+/** Transfers between your own accounts: your name (Money → Setup) or one of your other accounts' last 4 digits. */
+export function isOwnTransfer(t, fin) {
+  const text = ` ${String(t.text || '')} ${String(t.merchant || '')} `;
+  if (SELF_TRANSFER.test(text)) return true;
+  const plain = text.replace(/\b(dear|hi|hello)\s+[^,\n]{2,60}[,\n]/gi, ' ').toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+  const names = String(fin.selfNames || '').split(',').map((n) => n.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ')).filter((n) => n.length >= 5);
+  if (names.some((n) => plain.includes(` ${n} `))) return true;
+  const mine = String(fin.ownAccounts || '').split(/[,\s]+/).map((x) => x.replace(/\D/g, '').slice(-4)).filter((x) => x.length === 4 && x !== t.last4);
+  return mine.some((d) => new RegExp(`(?:x|\\*|ending|no|a c|ac|account)\\s*${d}\\b`).test(plain));
+}
 
 /**
  * @param {object} fin state.finance
@@ -38,7 +51,8 @@ export function planBankItems(fin, items, now = new Date(), { statement = false 
     if (existingIds.has(sid)) { out.skipped.push({ t, why: 'already imported' }); continue; }
     const d = parseDay(t.date);
     const card = cardFor(fin, t);
-    if (FLEXI.test(`${t.text || ''} ${t.merchant || ''}`)) { out.skipped.push({ t, why: 'FLEXI deposit sweep (ignored)' }); continue; }
+    if (FLEXI.test(`${t.text || ''} ${t.merchant || ''}`)) { out.skipped.push({ t, why: 'FLEXI (ignored)' }); continue; }
+    const own = t.self || isOwnTransfer(t, fin);
 
     if (t.type === 'credit') {
       // Payment received on a credit card = that card's bill is paid.
@@ -48,7 +62,7 @@ export function planBankItems(fin, items, now = new Date(), { statement = false 
         else out.skipped.push({ t, why: 'card payment' });
         continue;
       }
-      if (t.self) { out.skipped.push({ t, why: 'transfer between your own accounts' }); continue; }
+      if (own) { out.skipped.push({ t, why: 'transfer between your own accounts' }); continue; }
       // Money for an unpaid invoice.
       const inv = fin.invoices.find((i) => !i.paidAt && (i.direction || 'in') === 'in' && near(i.amount, t.amount));
       if (inv) { out.paid.push({ ref: 'invoice', id: inv.id, key: 'once' }); out.messages.push(`Invoice ${inv.party} ${inv.number || ''} marked received.`); }
@@ -67,7 +81,6 @@ export function planBankItems(fin, items, now = new Date(), { statement = false 
       else out.skipped.push({ t, why: 'credit card bill payment (not a new spend)' });
       continue;
     }
-    if (SELF_TRANSFER.test(t.text || '')) { out.skipped.push({ t, why: 'transfer between your accounts' }); continue; }
 
     // EMI / SIP / bill with the same amount due within ±5 days.
     const due = dueItems(fin, addDays(d, -5), addDays(d, 5))
@@ -79,7 +92,8 @@ export function planBankItems(fin, items, now = new Date(), { statement = false 
       continue;
     }
 
-    if (t.self) { out.skipped.push({ t, why: 'transfer between your own accounts' }); continue; }
+    if (own) { out.skipped.push({ t, why: 'transfer between your own accounts' }); continue; }
+    if (SIP_OR_EMI.test(`${t.text || ''} ${t.merchant || ''}`)) { out.skipped.push({ t, why: 'SIP / EMI (tracked under Dues, not a spend)' }); continue; }
 
     // Probably logged by hand already: same amount within a day.
     // From a statement, alert-logged spends count as duplicates too.

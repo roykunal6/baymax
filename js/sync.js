@@ -23,14 +23,14 @@ export const COLLECTIONS = {
 /** Single objects that sync as one row each. */
 export const DOCS = {
   money: {
-    get: (s) => ({ income: s.finance.income, budget: s.finance.budget, categoryBudgets: s.finance.categoryBudgets, remindDays: s.finance.remindDays, zerodha: s.finance.zerodha, gmailImportV: s.finance.gmailImportV, fire: s.finance.fire, statementUploads: s.finance.statementUploads, stmtTaskMonths: s.finance.stmtTaskMonths, spendsResetV: s.finance.spendsResetV }),
+    get: (s) => ({ income: s.finance.income, budget: s.finance.budget, categoryBudgets: s.finance.categoryBudgets, remindDays: s.finance.remindDays, zerodha: s.finance.zerodha, gmailImportV: s.finance.gmailImportV, fire: s.finance.fire, statementUploads: s.finance.statementUploads, stmtTaskMonths: s.finance.stmtTaskMonths, spendsResetV: s.finance.spendsResetV, selfNames: s.finance.selfNames, ownAccounts: s.finance.ownAccounts }),
     set: (s, v) => { Object.assign(s.finance, v); },
   },
   profile: { get: (s) => ({ name: s.settings.name }), set: (s, v) => { if (v && 'name' in v) s.settings.name = v.name; } },
   // Email → tasks: on/off, and emails already turned into tasks (merged, so no device re-adds a deleted one).
   mailtriage: {
     get: (s) => s.mailTriage || { on: false, seen: {} },
-    set: (s, v) => { s.mailTriage = { ...(s.mailTriage || {}), ...v, seen: { ...(s.mailTriage?.seen || {}), ...(v?.seen || {}) } }; },
+    set: (s, v) => { s.mailTriage = { ...(s.mailTriage || {}), ...v, seen: { ...(s.mailTriage?.seen || {}), ...(v?.seen || {}) }, seen2: { ...(s.mailTriage?.seen2 || {}), ...(v?.seen2 || {}) }, v: Math.max(s.mailTriage?.v || 0, v?.v || 0) }; },
   },
 };
 

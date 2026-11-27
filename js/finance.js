@@ -161,7 +161,10 @@ export function monthSummary(fin, now = new Date()) {
   const credits = (fin.credits || []).filter((x) => String(x.date).startsWith(mk));
   const refunds = credits.filter((x) => x.kind === 'refund').reduce((a, x) => a + x.amount, 0);
   const moneyIn = credits.filter((x) => x.kind !== 'refund').reduce((a, x) => a + x.amount, 0);
-  const spent = Math.max(0, spends.reduce((a, x) => a + x.amount, 0) - refunds);
+  // Spent = money out minus everything credited (refunds, paybacks, other money in): the balance.
+  const moneyOut = spends.reduce((a, x) => a + x.amount, 0);
+  const creditedTotal = refunds + moneyIn;
+  const spent = Math.max(0, moneyOut - creditedTotal);
   const byCategory = {};
   for (const x of spends) byCategory[x.category || 'Other'] = (byCategory[x.category || 'Other'] || 0) + x.amount;
   const byCard = {};
@@ -191,7 +194,7 @@ export function monthSummary(fin, now = new Date()) {
   const savings = income - spent - fixed; // SIPs count as savings
   return {
     month: mk, day, daysInMonth: dim, daysLeft, early: day < 5,
-    spent, refunds, moneyIn, byCategory, byCard, spends,
+    spent, moneyOut, creditedTotal, refunds, moneyIn, byCategory, byCard, spends,
     spentToday: sumSpends(fin, now, now),
     spentWeek: sumSpends(fin, startOfWeek(now), now),
     emi, sip, bills, fixed, fixedPaid, dues,
